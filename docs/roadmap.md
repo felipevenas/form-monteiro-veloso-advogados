@@ -19,7 +19,7 @@
 **Status:** concluída no escopo do formulário público, publicado em `https://form.monteiroveloso.com`. Os itens não marcados abaixo são evoluções posteriores da fase.
 
 - [x] Vite + React + TypeScript + Tailwind com tokens da landing.
-- [x] Estrutura feature-based (`domain/application/infrastructure/ui`).
+- [x] Estrutura feature-based (`components/pages/hooks/services/types/utils`).
 - [x] Schema do Supabase, RLS, RPCs, seed e tipos gerados.
 - [x] Wizard schema-driven com Zod, máscaras e autosave por etapa.
 - [x] Wizard compacto de 5 etapas: dados → contrato/pagamento → assinatura → pagamento → documentos.

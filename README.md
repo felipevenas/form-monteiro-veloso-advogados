@@ -80,21 +80,28 @@ src/
   app/              # rotas, layouts e shell
   features/         # uma pasta por capacidade de negócio
     start-process/
-    process/        # domínio + repositórios do processo
+      pages/ services/
+    process/        # tipos, regras puras e repositórios do processo
+      domain/ services/ types/
     process-wizard/
+      components/ hooks/ services/ utils/
     process-status/
+      components/ pages/
     admin-auth/
+      hooks/ pages/
     admin-dashboard/
+      pages/
     admin-processes/
+      components/ pages/ services/ types/
     privacy/
+      pages/
   shared/
-    domain/         # CPF, telefone, dinheiro, datas, vencimentos
+    utils/          # CPF, telefone, dinheiro, datas, vencimentos
     ui/             # componentes base
     lib/            # utilidades sem regra de negócio
     theme/          # tema claro/escuro
     config/         # env, marca, rotas
-    api/            # tipos gerados do banco
-    supabase/       # client do admin
+    api/            # tipos gerados do banco + client Supabase
 supabase/
   migrations/       # schema, RLS, RPCs
   functions/        # Edge Functions
@@ -111,7 +118,7 @@ docs/
   decisions/
 ```
 
-Cada feature segue as camadas `domain → application → infrastructure → ui`, com `index.ts` como API pública. Regras de negócio não ficam em componentes.
+Cada feature organiza o código em `components`, `pages`, `hooks`, `services`, `types` e `utils`, com `index.ts` como API pública. Regras puras, quando existirem, ficam em `domain/`. Regras de negócio não ficam em componentes.
 
 ## Identidade visual
 

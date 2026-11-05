@@ -1,5 +1,5 @@
 import { Moon, Sun } from 'lucide-react'
-import { useTheme } from '@/shared/theme/theme-context'
+import { useTheme } from '@/shared/theme/themeContext'
 import { cn } from '@/shared/lib/cn'
 
 export function ThemeToggle({ className }: { className?: string }) {

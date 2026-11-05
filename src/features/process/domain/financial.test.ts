@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildFinancialSnapshot, buildSnapshotFromPlan } from './financial'
-import type { PaymentPlan } from './types'
+import type { PaymentPlan } from '../types'
 
 const plan: PaymentPlan = {
   id: 'parcelado',

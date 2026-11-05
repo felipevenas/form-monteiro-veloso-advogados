@@ -5,7 +5,7 @@ import type {
   SignatureStatus,
   TrackTone,
   UnlockCondition,
-} from './types'
+} from '../types'
 
 interface StatusMeta {
   label: string

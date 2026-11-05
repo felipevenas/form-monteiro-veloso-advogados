@@ -5,7 +5,7 @@ import {
   deriveTracks,
   isProcessComplete,
 } from './workflow'
-import type { ContractProcess, DocumentState } from './types'
+import type { ContractProcess, DocumentState } from '../types'
 
 const documents: DocumentState[] = [
   {

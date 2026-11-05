@@ -1,7 +1,7 @@
 import { forwardRef, type SelectHTMLAttributes } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/shared/lib/cn'
-import { inputStyles } from './input-styles'
+import { inputStyles } from './inputStyles'
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   invalid?: boolean

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { env } from '@/shared/config/env'
 import { isMockMode } from '@/shared/config/env'
-import { useTheme } from '@/shared/theme/theme-context'
+import { useTheme } from '@/shared/theme/themeContext'
 
 interface TurnstileWidgetProps {
   onToken: (token: string) => void

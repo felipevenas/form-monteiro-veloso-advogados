@@ -1,6 +1,6 @@
 import { forwardRef, type InputHTMLAttributes } from 'react'
 import { cn } from '@/shared/lib/cn'
-import { inputStyles } from './input-styles'
+import { inputStyles } from './inputStyles'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   invalid?: boolean

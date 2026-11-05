@@ -1,12 +1,12 @@
-import { calculateDueDates } from '@/shared/domain/due-date'
-import type { HolidayCalendar } from '@/shared/domain/dates'
-import { distributeCents, sumCents } from '@/shared/domain/money'
+import { calculateDueDates } from '@/shared/utils/dueDate'
+import type { HolidayCalendar } from '@/shared/utils/dates'
+import { distributeCents, sumCents } from '@/shared/utils/money'
 import type {
   DueDateRule,
   FinancialSnapshot,
   PaymentMethod,
   PaymentPlan,
-} from './types'
+} from '../types'
 
 export type FinancialResult =
   | { ok: true; value: FinancialSnapshot }

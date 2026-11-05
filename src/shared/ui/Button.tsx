@@ -5,7 +5,7 @@ import {
   buttonStyles,
   type ButtonSize,
   type ButtonVariant,
-} from './button-styles'
+} from './buttonStyles'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant

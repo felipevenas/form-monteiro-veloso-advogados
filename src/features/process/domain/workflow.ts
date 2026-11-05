@@ -9,7 +9,7 @@ import type {
   ContractProcess,
   NextAction,
   ProcessTrack,
-} from './types'
+} from '../types'
 
 export function areDocumentsUnlocked(process: ContractProcess): boolean {
   if (process.generalStatus === 'CANCELADO') return false

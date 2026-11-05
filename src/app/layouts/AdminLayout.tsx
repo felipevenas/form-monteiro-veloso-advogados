@@ -7,9 +7,9 @@ import {
   PlugZap,
   Users,
 } from 'lucide-react'
-import { useAdminSession } from '@/features/admin-auth/application/use-admin-session'
+import { useAdminSession } from '@/features/admin-auth/hooks/useAdminSession'
 import { isMockMode } from '@/shared/config/env'
-import { supabase } from '@/shared/supabase/client'
+import { supabase } from '@/shared/api/supabase'
 import { routes } from '@/shared/config/routes'
 import { brand } from '@/shared/config/brand'
 import { cn } from '@/shared/lib/cn'

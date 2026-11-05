@@ -1,8 +1,8 @@
 import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { PublicLayout } from './layouts/PublicLayout'
-import { StartProcessPage } from '@/features/start-process/ui/StartProcessPage'
-import { ResumePage } from '@/features/start-process/ui/ResumePage'
+import { StartProcessPage } from '@/features/start-process/pages/StartProcessPage'
+import { ResumePage } from '@/features/start-process/pages/ResumePage'
 import { LoadingBlock } from '@/shared/ui/Spinner'
 import { NotFoundPage } from './NotFoundPage'
 
@@ -13,37 +13,37 @@ const AdminLayout = lazy(() =>
 )
 
 const ProcessPage = lazy(() =>
-  import('@/features/process-status/ui/ProcessPage').then((module) => ({
+  import('@/features/process-status/pages/ProcessPage').then((module) => ({
     default: module.ProcessPage,
   })),
 )
 
 const PrivacyPage = lazy(() =>
-  import('@/features/privacy/ui/PrivacyPage').then((module) => ({
+  import('@/features/privacy/pages/PrivacyPage').then((module) => ({
     default: module.PrivacyPage,
   })),
 )
 
 const AdminLoginPage = lazy(() =>
-  import('@/features/admin-auth/ui/AdminLoginPage').then((module) => ({
+  import('@/features/admin-auth/pages/AdminLoginPage').then((module) => ({
     default: module.AdminLoginPage,
   })),
 )
 
 const AdminDashboardPage = lazy(() =>
-  import('@/features/admin-dashboard/ui/AdminDashboardPage').then((module) => ({
+  import('@/features/admin-dashboard/pages/AdminDashboardPage').then((module) => ({
     default: module.AdminDashboardPage,
   })),
 )
 
 const AdminProcessesPage = lazy(() =>
-  import('@/features/admin-processes/ui/AdminProcessesPage').then((module) => ({
+  import('@/features/admin-processes/pages/AdminProcessesPage').then((module) => ({
     default: module.AdminProcessesPage,
   })),
 )
 
 const AdminProcessDetailPage = lazy(() =>
-  import('@/features/admin-processes/ui/AdminProcessDetailPage').then((module) => ({
+  import('@/features/admin-processes/pages/AdminProcessDetailPage').then((module) => ({
     default: module.AdminProcessDetailPage,
   })),
 )

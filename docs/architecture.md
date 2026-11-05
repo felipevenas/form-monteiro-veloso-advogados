@@ -20,17 +20,19 @@ Supabase Edge Functions
 
 Integrações externas ficam atrás de adaptadores: ZapSign, Asaas, Google Drive, Infinitum, Vertisell e e-mail. Nenhuma delas é fonte de verdade do processo.
 
-## Camadas
+## Organização do frontend
 
-| Camada | Responsabilidade | Pode importar |
+| Pasta | Responsabilidade | Pode importar |
 | --- | --- | --- |
-| `domain` | Tipos, regras puras, máquina de estados | `shared/domain` |
-| `application` | Casos de uso, portas, validação | `domain`, `shared` |
-| `infrastructure` | Adaptadores HTTP/Storage/mock | `application`, `domain` |
-| `ui` | React, acessibilidade, estados visuais | `domain`, `application`, `composition` |
-| `composition` | Escolha do adaptador por ambiente | `infrastructure` |
+| `pages` | Telas roteadas | `components`, `hooks`, `services`, `types`, `shared` |
+| `components` | Componentes de UI da feature | `hooks`, `services`, `types`, `shared/ui` |
+| `hooks` | Estado e efeitos reutilizáveis | `services`, `types`, `shared` |
+| `services` | Casos de uso, validação de entrada e adaptadores HTTP/mock | `domain`, `types`, `shared` |
+| `domain` | Regras puras e máquina de estados (quando a feature tiver) | `types`, `shared/utils` |
+| `types` | Tipos e contratos da feature | `domain`, `shared/types` |
+| `utils` | Funções puras de apoio à UI/feature | `types`, `shared/utils` |
 
-`ui` nunca chama `fetch` diretamente; usa o repositório da feature. `domain` não conhece React, Supabase, `window` nem `fetch`.
+`components` e `pages` nunca chamam `fetch` diretamente; usam o repositório da feature. `domain` não conhece React, Supabase, `window` nem `fetch`. Cada feature expõe sua API pública por `index.ts`.
 
 ## Sessão pública
 

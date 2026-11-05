@@ -1,10 +1,10 @@
 import { isMockMode } from '@/shared/config/env'
-import type { ProcessRepository } from './application/process-repository'
-import { createHttpProcessRepository } from './infrastructure/http-process-repository'
+import type { ProcessRepository } from './types'
+import { createHttpProcessRepository } from './services/processRepository'
 import {
   createMockProcessRepository,
   type MockProcessRepository,
-} from './infrastructure/mock/mock-process-repository'
+} from './services/mockProcessRepository'
 
 const mockRepository: MockProcessRepository | null = isMockMode
   ? createMockProcessRepository()
@@ -16,16 +16,10 @@ export const processRepository: ProcessRepository =
 export const mockProcessRepository = mockRepository
 
 export * from './domain'
-export type {
-  CheckoutResult,
-  ProcessRepository,
-  StartProcessInput,
-  StartProcessResult,
-  StartSignatureInput,
-} from './application/process-repository'
-export { ApiError } from './application/process-repository'
+export * from './types'
+export { ApiError } from './services/apiError'
 export {
   findMockProcessById,
   findMockProcessToken,
   listMockProcesses,
-} from './infrastructure/mock/mock-process-repository'
+} from './services/mockProcessRepository'
