@@ -1,0 +1,226 @@
+@import 'tailwindcss';
+@source '../**/*.{ts,tsx,html}';
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 900;
+  src: url('/fonts/playfair-display-latin.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 900;
+  src: url('/fonts/playfair-display-latin-ext.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url('/fonts/manrope-latin.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url('/fonts/manrope-latin-ext.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@theme {
+  --font-display: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-ink: #0a1628;
+  --color-navy-900: #0f2340;
+  --color-navy-800: #14305a;
+  --color-brand: #1a3b6f;
+  --color-blue-600: #2e63a8;
+  --color-blue-500: #3e7cc0;
+  --color-sky-300: #9dbbe0;
+  --color-blue-200: #c3d6ec;
+  --color-paper: #ffffff;
+  --color-paper-alt: #f7f9fc;
+  --color-blue-50: #eef4fa;
+  --color-text: #0e1a2b;
+  --color-text-2: #3f4e62;
+  --color-border: #dce3ec;
+  --color-field: #5f7186;
+  --color-border-interactive: #7b8fa6;
+
+  --color-whatsapp: #25d366;
+  --color-whatsapp-dark: #1fb959;
+  --color-whatsapp-ink: #0a1628;
+  --color-google-yellow: #fbbc04;
+
+  --color-success: #157347;
+  --color-success-soft: #e7f5ee;
+  --color-warning: #9a6700;
+  --color-warning-soft: #fff6e0;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+
+  --shadow-soft: 0 24px 70px -32px rgba(10, 22, 40, 0.42);
+  --shadow-card: 0 14px 40px -26px rgba(15, 35, 64, 0.4);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 6rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-paper);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    line-height: 1.08;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background: var(--color-blue-200);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .label-caps {
+    font-size: 0.6875rem;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .logo-mark {
+    display: inline-block;
+    background-color: currentColor;
+    -webkit-mask: url('/brand/icone-branco.png') left center / contain no-repeat;
+    mask: url('/brand/icone-branco.png') left center / contain no-repeat;
+  }
+}
+
+/* Tema escuro escopado à área pública. O admin permanece claro. */
+html[data-theme='dark'] .public-shell {
+  color-scheme: dark;
+
+  --color-ink: #eaf2fb;
+  --color-navy-900: #071426;
+  --color-navy-800: #0b1d35;
+  --color-brand: #3e7cc0;
+  --color-blue-600: #6aa9e0;
+  --color-blue-500: #7db6e8;
+  --color-sky-300: #b9d6f0;
+  --color-blue-200: #24486f;
+  --color-paper: #06101f;
+  --color-paper-alt: #0b1a2e;
+  --color-blue-50: #0e2440;
+  --color-text: #e7eff9;
+  --color-text-2: #a9bdd3;
+  --color-border: #1e3552;
+  --color-field: #8fa8c4;
+  --color-border-interactive: #5a7fa6;
+  --color-success-soft: #0f2f24;
+  --color-success: #6ee7b7;
+  --color-warning-soft: #33260a;
+  --color-warning: #f5c451;
+  --color-danger-soft: #3a1210;
+  --color-danger: #f19a92;
+  --color-google-yellow: #fbbc04;
+  --color-link: #8fc3f0;
+}
+
+html[data-theme='dark'] .public-shell .text-brand {
+  color: var(--color-link);
+}
+
+html[data-theme='dark'] .public-shell input,
+html[data-theme='dark'] .public-shell select,
+html[data-theme='dark'] .public-shell textarea {
+  color-scheme: dark;
+}
+
