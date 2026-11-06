@@ -35,8 +35,7 @@
 - [x] Snapshot financeiro com validação da soma e agenda de vencimentos.
 - [x] Página de status com trilhos independentes e próximo passo.
 - [x] Upload de documentos (mock) e timeline.
-- [x] Painel admin mínimo com dashboard, lista e detalhe (congelado por ora).
-- [x] Auth do admin (Supabase Auth + fallback demo).
+- [x] Sem área administrativa no frontend: operação interna via Supabase.
 - [x] Testes de domínio (CPF, telefone, dinheiro, vencimentos, workflow).
 - [x] E-mails transacionais (Resend): confirmação de cadastro, conclusão e link de acesso.
 - [x] Headers de segurança, CSP e rewrite de SPA.
@@ -87,18 +86,9 @@
 - [ ] Tarefas humanas e alertas deduplicados.
 - [ ] Ações administrativas auditadas (retry, pausa, reenvio).
 
-## Fase 5 — Painel completo
-
-- [ ] CRUD de produtos/versões/templates.
-- [ ] Editor de requisitos e planos.
-- [ ] Gestão de mensagens e FAQ.
-- [ ] Operações e integrações.
-- [ ] Permissões por papel e MFA.
-
-## Fase 6 — Hardening e go-live
+## Fase 5 — Hardening e go-live
 
 - [x] Testes E2E (Playwright) do fluxo público (formulário, autosave, CEP, tema, acessibilidade e mobile).
-- [ ] Testes E2E do painel admin.
 - [ ] Testes de carga e rate limit.
 - [ ] Revisão de segurança (IDOR, upload, CSP, RLS).
 - [ ] Revisão jurídica dos modelos e do aviso de privacidade.

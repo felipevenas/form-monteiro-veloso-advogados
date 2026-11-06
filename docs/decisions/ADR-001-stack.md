@@ -4,7 +4,7 @@
 
 ## Contexto
 
-O projeto tem duas superfícies (formulário público e painel), muitas integrações e nenhuma necessidade de SEO. O time já usa React e Supabase.
+O projeto tem uma superfície pública (formulário), muitas integrações e nenhuma necessidade de SEO. O time já usa React e Supabase.
 
 ## Decisão
 

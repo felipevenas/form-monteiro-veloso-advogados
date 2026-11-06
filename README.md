@@ -79,21 +79,15 @@ As chaves privadas de ZapSign, Asaas, Google Drive, Infinitum, Vertisell e e-mai
 src/
   app/              # rotas, layouts e shell
   features/         # uma pasta por capacidade de negócio
-    start-process/
-      pages/ services/
-    process/        # tipos, regras puras e repositórios do processo
+    process-core/   # tipos, regras puras e repositórios do processo
       domain/ services/ types/
-    process-wizard/
+    public-form/    # wizard do formulário público
       components/ hooks/ services/ utils/
-    process-status/
+    public-start/   # abertura e retomada do processo
+      pages/ services/
+    public-tracking/ # acompanhamento do processo pelo cliente
       components/ pages/
-    admin-auth/
-      hooks/ pages/
-    admin-dashboard/
-      pages/
-    admin-processes/
-      components/ pages/ services/ types/
-    privacy/
+    privacy/        # política de privacidade
       pages/
   shared/
     utils/          # CPF, telefone, dinheiro, datas, vencimentos
@@ -101,7 +95,7 @@ src/
     lib/            # utilidades sem regra de negócio
     theme/          # tema claro/escuro
     config/         # env, marca, rotas
-    api/            # tipos gerados do banco + client Supabase
+    api/            # tipos gerados do banco
 supabase/
   migrations/       # schema, RLS, RPCs
   functions/        # Edge Functions
@@ -128,7 +122,7 @@ Os tokens e as fontes vêm da landing (`../monteiro-veloso-advogados`): navy/pap
 
 - Nenhum segredo no bundle: somente variáveis `VITE_*` públicas.
 - `anon` não acessa tabelas; o público passa por Edge Functions.
-- RLS para o admin, com papéis e mascaramento de CPF.
+- RLS com papéis e mascaramento de CPF nas operações internas.
 - Token de processo opaco, sem IDs sequenciais.
 - Idempotência e outbox no banco.
 - Cabeçalhos de segurança e CSP em `vercel.json`.

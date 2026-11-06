@@ -16,5 +16,5 @@ O PRD tem estados de assinatura, pagamento e documentação independentes. Um ú
 ## Consequências
 
 - A UI consegue mostrar “assinatura concluída, pagamento parcial, documentos bloqueados” sem inventar estados.
-- O painel filtra por etapa e por trilho.
+- Os filtros operacionais usam etapa e trilho.
 - Regras de transição precisam de testes; nenhuma tela pode “marcar como concluído”.
