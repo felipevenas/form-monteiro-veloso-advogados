@@ -60,8 +60,14 @@ export default tseslint.config(
               message: 'domain é TypeScript puro.',
             },
             {
-              group: ['@/shared/ui/*', '@/features/*/ui/*', '@/features/*/infrastructure/*'],
-              message: 'domain não importa UI nem infraestrutura.',
+              group: [
+                '@/shared/ui/*',
+                '@/features/*/components/*',
+                '@/features/*/pages/*',
+                '@/features/*/services/*',
+                '@/features/*/hooks/*',
+              ],
+              message: 'domain não importa UI, serviços nem hooks.',
             },
           ],
         },
@@ -69,15 +75,15 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/features/*/application/**/*.{ts,tsx}'],
+    files: ['src/features/*/services/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
         {
           patterns: [
             {
-              group: ['@/shared/ui/*', '@/features/*/ui/*'],
-              message: 'application não importa UI.',
+              group: ['@/shared/ui/*', '@/features/*/components/*', '@/features/*/pages/*'],
+              message: 'services não importam UI.',
             },
           ],
         },

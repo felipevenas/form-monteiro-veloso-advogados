@@ -1,4 +1,4 @@
-import { normalizeCep } from '@/shared/domain/cep'
+import { normalizeCep } from '@/shared/utils/cep'
 
 export interface CepAddress {
   street: string

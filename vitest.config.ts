@@ -12,7 +12,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     coverage: {
       reporter: ['text', 'html'],
-      include: ['src/shared/domain/**', 'src/features/process/domain/**'],
+      include: ['src/shared/utils/**', 'src/features/process-core/domain/**'],
     },
   },
 })

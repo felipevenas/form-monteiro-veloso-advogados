@@ -20,17 +20,19 @@ Supabase Edge Functions
 
 Integrações externas ficam atrás de adaptadores: ZapSign, Asaas, Google Drive, Infinitum, Vertisell e e-mail. Nenhuma delas é fonte de verdade do processo.
 
-## Camadas
+## Organização do frontend
 
-| Camada | Responsabilidade | Pode importar |
+| Pasta | Responsabilidade | Pode importar |
 | --- | --- | --- |
-| `domain` | Tipos, regras puras, máquina de estados | `shared/domain` |
-| `application` | Casos de uso, portas, validação | `domain`, `shared` |
-| `infrastructure` | Adaptadores HTTP/Storage/mock | `application`, `domain` |
-| `ui` | React, acessibilidade, estados visuais | `domain`, `application`, `composition` |
-| `composition` | Escolha do adaptador por ambiente | `infrastructure` |
+| `pages` | Telas roteadas | `components`, `hooks`, `services`, `types`, `shared` |
+| `components` | Componentes de UI da feature | `hooks`, `services`, `types`, `shared/ui` |
+| `hooks` | Estado e efeitos reutilizáveis | `services`, `types`, `shared` |
+| `services` | Casos de uso, validação de entrada e adaptadores HTTP/mock | `domain`, `types`, `shared` |
+| `domain` | Regras puras e máquina de estados (quando a feature tiver) | `types`, `shared/utils` |
+| `types` | Tipos e contratos da feature | `domain`, `shared/types` |
+| `utils` | Funções puras de apoio à UI/feature | `types`, `shared/utils` |
 
-`ui` nunca chama `fetch` diretamente; usa o repositório da feature. `domain` não conhece React, Supabase, `window` nem `fetch`.
+`components` e `pages` nunca chamam `fetch` diretamente; usam o repositório da feature. `domain` não conhece React, Supabase, `window` nem `fetch`. Cada feature expõe sua API pública por `index.ts`.
 
 ## Sessão pública
 
@@ -44,7 +46,7 @@ O processo é identificado por um **token opaco** (`mv_` + 24 bytes aleatórios)
 
 O cliente pode retomar por magic link/OTP enviado ao e-mail da contratação. A resposta da API não revela se um e-mail existe.
 
-**Evolução:** o adaptador HTTP já aceita cookie (`credentials: include` no admin); falta o proxy same-site para o público. Ver `docs/decisions/ADR-002-sessao-publica.md`.
+**Evolução:** o adaptador HTTP já aceita cookie (`credentials: include`); falta o proxy same-site para o público. Ver `docs/decisions/ADR-002-sessao-publica.md`.
 
 ## Formulário público
 
@@ -58,7 +60,7 @@ O fluxo tem 5 etapas: **Seus dados → Contrato e pagamento → Assinatura → P
 - **Pagamento** abre o checkout hospedado do Asaas. O `callback.successUrl` volta para `/processo/:token?pagamento=retorno`; a confirmação vem do webhook `CHECKOUT_PAID`, nunca do redirect.
 - **Documentos** só é liberado após assinatura + pagamento e conclui o processo quando os obrigatórios são enviados.
 - O status do autosave e os estados de assinatura/pagamento são anunciados com `aria-live`; a página faz polling de 5 s enquanto aguarda webhook.
-- O tema claro/escuro é persistido em `mv:theme` e aplicado em `html[data-theme]`; o formulário abre **sempre no claro** e o escuro é uma escolha do visitante (o botão do cabeçalho alterna). O escuro é escopado a `.public-shell`, então o admin permanece claro. A logo é o ícone real da LP aplicado como máscara CSS com `currentColor`.
+- O tema claro/escuro é persistido em `mv:theme` e aplicado em `html[data-theme]`; o formulário abre **sempre no claro** e o escuro é uma escolha do visitante (o botão do cabeçalho alterna). O escuro é escopado a `.public-shell`. A logo é o ícone real da LP aplicado como máscara CSS com `currentColor`.
 - Desktop usa o fluxograma rotulado; mobile usa um stepper de pontos com “Etapa X de Y”, sem scroll horizontal.
 - Erros de validação aparecem em um resumo focável que linka para o campo; ao trocar de etapa, o foco vai para o título.
 - Depois dos documentos, a página vira a confirmação com resumo e próximos passos.
@@ -99,7 +101,7 @@ Nada depende de aba aberta. Antes de repetir uma chamada externa, o worker recon
 
 | Provedor | Papel | Falha | Fallback |
 | --- | --- | --- | --- |
-| ZapSign | gerar/assinar documentos | job re-tentado; reconciliação por `external_id` | link manual no admin |
+| ZapSign | gerar/assinar documentos | job re-tentado; reconciliação por `external_id` | link manual pela operação |
 | Asaas | cliente, cobranças, webhooks | job re-tentado; nunca confirma por redirect | cobrança manual registrada |
 | Google Drive | arquivo final | retry com backoff | documento permanece no Storage privado |
 | Infinitum | mover card | tarefa humana | modo `manual` |
@@ -126,7 +128,7 @@ navegador → URL assinada do Storage (privado)
 ## Segurança
 
 - `anon` sem policies; público somente via Edge Function.
-- Admin via Supabase Auth + `profiles.role` + RLS; escrita via `api-admin`.
+- Acesso interno via Supabase Auth + `profiles.role` + RLS; escrita via `api-admin`.
 - CPF e documentos restritos a `owner/admin/juridico/financeiro`.
 - Webhooks com segredo no header e dedupe por `event_hash`.
 - Rate limit em Postgres (`consume_rate_limit`).

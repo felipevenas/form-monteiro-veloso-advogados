@@ -184,7 +184,7 @@
   }
 }
 
-/* Tema escuro escopado à área pública. O admin permanece claro. */
+/* Tema escuro escopado à área pública. */
 html[data-theme='dark'] .public-shell {
   color-scheme: dark;
 

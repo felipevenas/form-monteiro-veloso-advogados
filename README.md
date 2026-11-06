@@ -79,22 +79,23 @@ As chaves privadas de ZapSign, Asaas, Google Drive, Infinitum, Vertisell e e-mai
 src/
   app/              # rotas, layouts e shell
   features/         # uma pasta por capacidade de negócio
-    start-process/
-    process/        # domínio + repositórios do processo
-    process-wizard/
-    process-status/
-    admin-auth/
-    admin-dashboard/
-    admin-processes/
-    privacy/
+    process-core/   # tipos, regras puras e repositórios do processo
+      domain/ services/ types/
+    public-form/    # wizard do formulário público
+      components/ hooks/ services/ utils/
+    public-start/   # abertura e retomada do processo
+      pages/ services/
+    public-tracking/ # acompanhamento do processo pelo cliente
+      components/ pages/
+    privacy/        # política de privacidade
+      pages/
   shared/
-    domain/         # CPF, telefone, dinheiro, datas, vencimentos
+    utils/          # CPF, telefone, dinheiro, datas, vencimentos
     ui/             # componentes base
     lib/            # utilidades sem regra de negócio
     theme/          # tema claro/escuro
     config/         # env, marca, rotas
     api/            # tipos gerados do banco
-    supabase/       # client do admin
 supabase/
   migrations/       # schema, RLS, RPCs
   functions/        # Edge Functions
@@ -111,7 +112,7 @@ docs/
   decisions/
 ```
 
-Cada feature segue as camadas `domain → application → infrastructure → ui`, com `index.ts` como API pública. Regras de negócio não ficam em componentes.
+Cada feature organiza o código em `components`, `pages`, `hooks`, `services`, `types` e `utils`, com `index.ts` como API pública. Regras puras, quando existirem, ficam em `domain/`. Regras de negócio não ficam em componentes.
 
 ## Identidade visual
 
@@ -121,7 +122,7 @@ Os tokens e as fontes vêm da landing (`../monteiro-veloso-advogados`): navy/pap
 
 - Nenhum segredo no bundle: somente variáveis `VITE_*` públicas.
 - `anon` não acessa tabelas; o público passa por Edge Functions.
-- RLS para o admin, com papéis e mascaramento de CPF.
+- RLS com papéis e mascaramento de CPF nas operações internas.
 - Token de processo opaco, sem IDs sequenciais.
 - Idempotência e outbox no banco.
 - Cabeçalhos de segurança e CSP em `vercel.json`.

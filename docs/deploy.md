@@ -10,7 +10,7 @@
 | Projeto Supabase | `lsmfqcqocrwgtfttcliq` (conta da cliente) |
 | Functions | `https://lsmfqcqocrwgtfttcliq.supabase.co/functions/v1` |
 | Banco | migrations + seed aplicados |
-| Auth admin | convite enviado para `roberta@monteiroveloso.com`; profile `owner` ativo |
+| Acesso interno | `roberta@monteiroveloso.com` com profile `owner` ativo (operação via Supabase) |
 | Cliente no ar | formulário público ativo; contrato/pagamento aguardam credenciais ZapSign/Asaas |
 
 ### Testes executados no domínio
@@ -119,13 +119,12 @@ Ainda faltam, quando as integrações forem habilitadas:
 - `INFINITUM_*`, `VERTISEL_*`
 - `CRON_SECRET`
 
-## Auth
+## Auth (interno)
 
 - Site URL: `https://form.monteiroveloso.com`
-- Redirects permitidos: `/admin/*` no domínio e em `localhost:5173`
 - Signup público: desativado
-- Primeiro usuário: convite enviado para `roberta@monteiroveloso.com`
-- Profile: `role = owner`, `active = true`
+- Acesso interno: perfil `owner` para operação no dashboard do Supabase
+- Não há interface administrativa no app.
 
 Se o convite não chegar, verificar spam ou reenviar pelo dashboard do Supabase em **Authentication → Users**. Para redefinir a senha, usar o dashboard do Supabase. Um fluxo self-service de “esqueci minha senha” ainda não foi implementado.
 

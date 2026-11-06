@@ -7,7 +7,7 @@ import {
   ThemeContext,
   type Theme,
   type ThemeContextValue,
-} from './theme-context'
+} from './themeContext'
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
