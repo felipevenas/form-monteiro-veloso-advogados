@@ -4,7 +4,7 @@ import { isValidCpf } from './cpf.ts'
 import { isValidPhone } from './phone.ts'
 import { isValidIsoDate } from './dates.ts'
 import { getByPath, mergeDeep } from './merge.ts'
-import type { FormField, FormStep } from './types.ts'
+import type { FormField, FormStep, ServiceObjectType } from './types.ts'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
@@ -13,14 +13,56 @@ export interface ValidationIssue {
   message: string
 }
 
-export function validateStep(step: FormStep, values: unknown): ValidationIssue[] {
+/** Contexto que resolve condições declarativas (`visibleWhen`) do schema. */
+export interface FormValidationContext {
+  objectType?: ServiceObjectType
+}
+
+export interface FormValidationOptions {
+  /** Draft permite salvar etapa incompleta; o submit exige os obrigatórios. */
+  requireFields?: boolean
+  /** Draft aceita CPF/e-mail/telefone parciais; o submit valida o formato. */
+  checkFormat?: boolean
+}
+
+/**
+ * Um campo só existe para o cliente quando sua condição declarativa é
+ * satisfeita. Sem contexto, o campo condicional fica oculto — assim ele nunca
+ * é exigido nem persistido antes da escolha do serviço.
+ */
+export function isFieldVisible(field: FormField, context?: FormValidationContext): boolean {
+  const rule = field.visibleWhen?.objectType
+
+  if (!rule) return true
+  if (!context?.objectType) return false
+
+  return Array.isArray(rule) ? rule.includes(context.objectType) : rule === context.objectType
+}
+
+export function validateStep(
+  step: FormStep,
+  values: unknown,
+  context?: FormValidationContext,
+  options: FormValidationOptions = {},
+): ValidationIssue[] {
+  const { requireFields = true, checkFormat = true } = options
   const issues: ValidationIssue[] = []
 
   for (const field of step.fields) {
+    if (!isFieldVisible(field, context)) continue
+
     const value = getByPath(values, field.name)
+
+    // O schema declarativo só aceita texto. Objeto/array em campo de texto é
+    // payload malformado e não pode chegar ao form_data.
+    if (value !== undefined && value !== null && typeof value !== 'string') {
+      issues.push({ field: field.name, message: 'Valor inválido para este campo.' })
+      continue
+    }
+
     const text = typeof value === 'string' ? value.trim() : ''
 
-    if (field.required && text === '') {
+    if (requireFields && field.required && text === '') {
       issues.push({ field: field.name, message: `Informe ${field.label.toLowerCase()}.` })
       continue
     }
@@ -34,6 +76,8 @@ export function validateStep(step: FormStep, values: unknown): ValidationIssue[]
       })
       continue
     }
+
+    if (!checkFormat) continue
 
     switch (field.type) {
       case 'cpf':
@@ -73,10 +117,13 @@ export function validateStep(step: FormStep, values: unknown): ValidationIssue[]
 export function normalizeStepValues(
   step: FormStep,
   values: Record<string, unknown>,
+  context?: FormValidationContext,
 ): Record<string, unknown> {
   let result: Record<string, unknown> = {}
 
   for (const field of step.fields) {
+    if (!isFieldVisible(field, context)) continue
+
     const value = getByPath(values, field.name) ?? field.defaultValue
     if (value === undefined) continue
 

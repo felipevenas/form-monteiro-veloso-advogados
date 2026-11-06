@@ -5,8 +5,11 @@ import type {
   PaymentPlan,
   ProductService,
   ProductSnapshot,
+  ServiceObjectType,
+  ServiceSuccessMode,
   WizardStepId,
 } from '../types'
+import { formatBRL } from '@/shared/utils/money'
 
 export const WIZARD_STEP_ORDER: readonly WizardStepId[] = [
   'dados',
@@ -34,6 +37,7 @@ export const pilotFormSchema: FormStep[] = [
         required: true,
         autoComplete: 'name',
         placeholder: 'Como está no seu documento',
+        maxLength: 160,
         colSpan: 2,
       },
       {
@@ -43,6 +47,7 @@ export const pilotFormSchema: FormStep[] = [
         required: true,
         autoComplete: 'off',
         placeholder: '000.000.000-00',
+        maxLength: 14,
       },
       {
         name: 'phone',
@@ -52,6 +57,7 @@ export const pilotFormSchema: FormStep[] = [
         autoComplete: 'tel',
         placeholder: '(71) 99999-9999',
         hint: 'O contrato será enviado para este número.',
+        maxLength: 20,
       },
       {
         name: 'email',
@@ -60,6 +66,7 @@ export const pilotFormSchema: FormStep[] = [
         required: true,
         autoComplete: 'email',
         placeholder: 'voce@email.com',
+        maxLength: 254,
         colSpan: 2,
       },
       {
@@ -82,6 +89,7 @@ export const pilotFormSchema: FormStep[] = [
         required: true,
         autoComplete: 'organization-title',
         placeholder: 'Ex.: Motorista de aplicativo',
+        maxLength: 120,
       },
       {
         name: 'nationality',
@@ -89,6 +97,7 @@ export const pilotFormSchema: FormStep[] = [
         type: 'text',
         required: true,
         placeholder: 'Brasileira',
+        maxLength: 80,
         colSpan: 2,
       },
       {
@@ -109,11 +118,12 @@ export const pilotFormSchema: FormStep[] = [
       },
       {
         name: 'address.street',
-        label: 'Logradouro',
+        label: 'Rua / avenida',
         type: 'text',
         required: true,
         autoComplete: 'address-line1',
         placeholder: 'Rua, avenida...',
+        maxLength: 200,
         colSpan: 2,
       },
       {
@@ -122,6 +132,7 @@ export const pilotFormSchema: FormStep[] = [
         type: 'text',
         required: true,
         placeholder: '17',
+        maxLength: 20,
       },
       {
         name: 'address.complement',
@@ -129,6 +140,7 @@ export const pilotFormSchema: FormStep[] = [
         type: 'text',
         required: false,
         placeholder: 'Apto, bloco, sala (opcional)',
+        maxLength: 120,
       },
       {
         name: 'address.neighborhood',
@@ -136,6 +148,7 @@ export const pilotFormSchema: FormStep[] = [
         type: 'text',
         required: true,
         placeholder: 'Bairro',
+        maxLength: 120,
       },
       {
         name: 'address.city',
@@ -144,43 +157,42 @@ export const pilotFormSchema: FormStep[] = [
         required: true,
         autoComplete: 'address-level2',
         placeholder: 'Salvador',
+        maxLength: 120,
       },
     ],
   },
   {
     id: 'contrato',
     title: 'Contrato e pagamento',
-    description: 'Dados do financiamento e escolha do plano. O contrato sai com essas informações.',
+    description: 'Informe o objeto do serviço e escolha o plano. O contrato sai com essas informações.',
     fields: [
       {
-        name: 'extra.vehicle_plate',
-        label: 'Placa do veículo',
-        type: 'text',
-        required: true,
-        placeholder: 'ABC1D23',
-        maxLength: 8,
-      },
-      {
-        name: 'extra.vehicle_model',
-        label: 'Modelo do veículo',
-        type: 'text',
-        required: true,
-        placeholder: 'Ex.: Fiat Argo 1.0',
-      },
-      {
-        name: 'extra.finance_institution',
-        label: 'Banco ou financeira',
+        name: 'extra.banco_instituicao_financeira',
+        label: 'Banco / instituição financeira',
         type: 'text',
         required: true,
         placeholder: 'Ex.: Banco Itaú',
+        maxLength: 160,
+        visibleWhen: { objectType: 'BANK' },
         colSpan: 2,
       },
       {
-        name: 'extra.contract_number',
-        label: 'Número do contrato de financiamento',
+        name: 'extra.ente_federativo_e_lei_aplicavel',
+        label: 'Ente federativo e lei aplicável',
         type: 'text',
+        required: true,
+        placeholder: 'Ex.: União — Lei 14.431/2022',
+        maxLength: 200,
+        visibleWhen: { objectType: 'PUBLIC_ENTITY' },
+        colSpan: 2,
+      },
+      {
+        name: 'extra.descricao_adicional_do_objeto',
+        label: 'Descrição adicional do objeto',
+        type: 'textarea',
         required: false,
-        placeholder: 'Se tiver em mãos (opcional)',
+        placeholder: 'Detalhes que ajudem a equipe a preparar o contrato (opcional)',
+        maxLength: 2000,
         colSpan: 2,
       },
     ],
@@ -205,142 +217,204 @@ export const pilotFormSchema: FormStep[] = [
   },
 ]
 
-export const pilotServices: ProductService[] = [
+interface ServiceSeed {
+  id: string
+  code: string
+  name: string
+  description: string
+  totalCents: number
+  groupNumber: number
+  objectType: ServiceObjectType
+  successMode: ServiceSuccessMode
+  kitCode: string
+}
+
+const serviceSeeds: ServiceSeed[] = [
   {
-    id: 'srv-busca',
-    code: 'busca-apreensao',
-    name: 'Defesa em busca e apreensão',
+    id: 'srv-01',
+    code: 'revisional-contrato-veiculo',
+    name: 'Revisional de Contrato de Veículo',
     description:
-      'Defesa de veículo apreendido ou em risco de apreensão, com análise do contrato e do processo.',
-    totalCents: 350_000,
-  },
-  {
-    id: 'srv-revisional',
-    code: 'revisional-financiamento',
-    name: 'Revisional de financiamento',
-    description:
-      'Auditoria de juros, tarifas e seguros embutidos no contrato de financiamento.',
+      'Auditoria de juros, tarifas e seguros do contrato de veículo, com pedido de revisão das cláusulas abusivas.',
     totalCents: 420_000,
+    groupNumber: 1,
+    objectType: 'BANK',
+    successMode: 'REDUCAO',
+    kitCode: 'ZAPSIGN_CONTRATO_01',
   },
   {
-    id: 'srv-cobranca',
-    code: 'cobranca-negociacao',
-    name: 'Cobrança e negociação',
-    description: 'Defesa contra cobrança abusiva e negociação da dívida com o banco.',
+    id: 'srv-02',
+    code: 'defesa-busca-apreensao',
+    name: 'Defesa de Busca e Apreensão',
+    description:
+      'Defesa em ação de busca e apreensão, com análise do contrato e das cláusulas de mora.',
+    totalCents: 350_000,
+    groupNumber: 1,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_BRANCA',
+    kitCode: 'ZAPSIGN_CONTRATO_02',
+  },
+  {
+    id: 'srv-03',
+    code: 'defesa-execucao-monitoria',
+    name: 'Defesa em Execução ou Monitória',
+    description:
+      'Defesa em execução ou ação monitória, com revisão do título e dos valores cobrados.',
+    totalCents: 380_000,
+    groupNumber: 1,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_BRANCA',
+    kitCode: 'ZAPSIGN_CONTRATO_03',
+  },
+  {
+    id: 'srv-04',
+    code: 'revisional-produtos-conta-corrente',
+    name: 'Revisional de Produtos de Conta Corrente',
+    description: 'Revisão de tarifas, juros e encargos cobrados em conta corrente.',
+    totalCents: 400_000,
+    groupNumber: 1,
+    objectType: 'BANK',
+    successMode: 'REDUCAO',
+    kitCode: 'ZAPSIGN_CONTRATO_04',
+  },
+  {
+    id: 'srv-05',
+    code: 'limitacao-consignados',
+    name: 'Limitação dos Consignados',
+    description:
+      'Ação para limitar descontos de empréstimo consignado ao limite legal do contracheque.',
+    totalCents: 450_000,
+    groupNumber: 2,
+    objectType: 'PUBLIC_ENTITY',
+    successMode: 'REDUCAO',
+    kitCode: 'ZAPSIGN_CONTRATO_05',
+  },
+  {
+    id: 'srv-06',
+    code: 'superendividamento',
+    name: 'Superendividamento',
+    description:
+      'Reorganização de dívidas e negociação com credores para preservar o mínimo existencial.',
+    totalCents: 500_000,
+    groupNumber: 2,
+    objectType: 'NONE',
+    successMode: 'REDUCAO',
+    kitCode: 'ZAPSIGN_CONTRATO_06',
+  },
+  {
+    id: 'srv-07',
+    code: 'desbloqueio-conta-bancaria',
+    name: 'Desbloqueio de Conta Bancária',
+    description: 'Pedido de desbloqueio de conta e restituição de valores retidos indevidamente.',
+    totalCents: 300_000,
+    groupNumber: 3,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_BRANCA',
+    kitCode: 'ZAPSIGN_CONTRATO_07',
+  },
+  {
+    id: 'srv-08',
+    code: 'acao-indenizatoria-geral',
+    name: 'Ação Indenizatória Geral',
+    description:
+      'Ação de indenização por dano moral ou material em relações de consumo e bancárias.',
+    totalCents: 350_000,
+    groupNumber: 3,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_BRANCA',
+    kitCode: 'ZAPSIGN_CONTRATO_08',
+  },
+  {
+    id: 'srv-09',
+    code: 'solicitacoes-bacen-procon',
+    name: 'Solicitações Administrativas no BACEN e PROCON',
+    description: 'Solicitações e reclamações administrativas contra instituições financeiras.',
+    totalCents: 250_000,
+    groupNumber: 4,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_ADMINISTRATIVA',
+    kitCode: 'ZAPSIGN_CONTRATO_09',
+  },
+  {
+    id: 'srv-10',
+    code: 'laudo-tecnico-contrato',
+    name: 'Laudo Técnico do Contrato + Solicitação de Contrato',
+    description: 'Elaboração de laudo técnico e solicitação das vias do contrato ao banco.',
+    totalCents: 200_000,
+    groupNumber: 4,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_ADMINISTRATIVA',
+    kitCode: 'ZAPSIGN_CONTRATO_10',
+  },
+  {
+    id: 'srv-11',
+    code: 'cancelamento-debito-automatico',
+    name: 'Cancelamento de Débito Automático + Solicitação dos Contratos',
+    description: 'Cancelamento de débito automático e pedido das vias contratuais.',
+    totalCents: 220_000,
+    groupNumber: 4,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_ADMINISTRATIVA',
+    kitCode: 'ZAPSIGN_CONTRATO_11',
+  },
+  {
+    id: 'srv-12',
+    code: 'cancelamento-associacoes',
+    name: 'Cancelamento de Associações',
+    description: 'Cancelamento de associações e cobranças não autorizadas vinculadas ao contrato.',
     totalCents: 240_000,
-  },
-  {
-    id: 'srv-analise',
-    code: 'analise-contratual',
-    name: 'Análise contratual',
-    description: 'Leitura técnica do contrato e parecer sobre cláusulas, encargos e riscos.',
-    totalCents: 90_000,
+    groupNumber: 4,
+    objectType: 'BANK',
+    successMode: 'CLAUSULA_ADMINISTRATIVA',
+    kitCode: 'ZAPSIGN_CONTRATO_12',
   },
 ]
 
+export const pilotServices: ProductService[] = serviceSeeds.map((seed) => ({
+  ...seed,
+  requiresVehicleData: false,
+}))
+
+const avistaPlans: PaymentPlan[] = pilotServices.map((service) => {
+  const signalCents = Math.round(service.totalCents / 10)
+
+  return {
+    id: `${service.id}-avista`,
+    serviceId: service.id,
+    label: 'À vista no Pix',
+    description: `Sinal de ${formatBRL(signalCents)} e saldo de ${formatBRL(
+      service.totalCents - signalCents,
+    )} no vencimento.`,
+    method: 'PIX',
+    mode: 'AVISTA',
+    totalCents: service.totalCents,
+    signalCents,
+    entryCents: 0,
+    installmentCount: 1,
+    dueDateRule: { type: 'FIXED_DAY', day: 10 },
+  }
+})
+
+const revisionalVeiculoSignalCents = 42_000
+const revisionalVeiculoInstallments = 6
+const revisionalVeiculoTotalCents = 420_000
+
 export const pilotPaymentPlans: PaymentPlan[] = [
+  ...avistaPlans,
   {
-    id: 'avista-pix',
-    serviceId: 'srv-busca',
-    label: 'À vista no Pix',
-    description: 'Sinal de R$ 500,00 e saldo de R$ 3.000,00 no vencimento.',
-    method: 'PIX',
-    mode: 'AVISTA',
-    totalCents: 350_000,
-    signalCents: 50_000,
-    entryCents: 0,
-    installmentCount: 1,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'parcelado-pix-6x',
-    serviceId: 'srv-busca',
+    id: 'srv-01-6x',
+    serviceId: 'srv-01',
     label: 'Sinal + 6 parcelas',
-    description: 'Sinal de R$ 500,00 e 6 parcelas de R$ 500,00.',
+    description: `Sinal de ${formatBRL(revisionalVeiculoSignalCents)} e ${revisionalVeiculoInstallments} parcelas de ${formatBRL(
+      (revisionalVeiculoTotalCents - revisionalVeiculoSignalCents) /
+        revisionalVeiculoInstallments,
+    )}.`,
     method: 'PIX',
     mode: 'PARCELADO',
-    totalCents: 350_000,
-    signalCents: 50_000,
+    totalCents: revisionalVeiculoTotalCents,
+    signalCents: revisionalVeiculoSignalCents,
     entryCents: 0,
-    installmentCount: 6,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'revisional-avista',
-    serviceId: 'srv-revisional',
-    label: 'À vista no Pix',
-    description: 'Sinal de R$ 600,00 e saldo de R$ 3.600,00 no vencimento.',
-    method: 'PIX',
-    mode: 'AVISTA',
-    totalCents: 420_000,
-    signalCents: 60_000,
-    entryCents: 0,
-    installmentCount: 1,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'revisional-6x',
-    serviceId: 'srv-revisional',
-    label: 'Sinal + 6 parcelas',
-    description: 'Sinal de R$ 600,00 e 6 parcelas de R$ 600,00.',
-    method: 'PIX',
-    mode: 'PARCELADO',
-    totalCents: 420_000,
-    signalCents: 60_000,
-    entryCents: 0,
-    installmentCount: 6,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'cobranca-avista',
-    serviceId: 'srv-cobranca',
-    label: 'À vista no Pix',
-    description: 'Sinal de R$ 300,00 e saldo de R$ 2.100,00 no vencimento.',
-    method: 'PIX',
-    mode: 'AVISTA',
-    totalCents: 240_000,
-    signalCents: 30_000,
-    entryCents: 0,
-    installmentCount: 1,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'cobranca-6x',
-    serviceId: 'srv-cobranca',
-    label: 'Sinal + 6 parcelas',
-    description: 'Sinal de R$ 300,00 e 6 parcelas de R$ 350,00.',
-    method: 'PIX',
-    mode: 'PARCELADO',
-    totalCents: 240_000,
-    signalCents: 30_000,
-    entryCents: 0,
-    installmentCount: 6,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'analise-avista',
-    serviceId: 'srv-analise',
-    label: 'À vista no Pix',
-    description: 'Sinal de R$ 150,00 e saldo de R$ 750,00 no vencimento.',
-    method: 'PIX',
-    mode: 'AVISTA',
-    totalCents: 90_000,
-    signalCents: 15_000,
-    entryCents: 0,
-    installmentCount: 1,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
-  },
-  {
-    id: 'analise-6x',
-    serviceId: 'srv-analise',
-    label: 'Sinal + 6 parcelas',
-    description: 'Sinal de R$ 150,00 e 6 parcelas de R$ 125,00.',
-    method: 'PIX',
-    mode: 'PARCELADO',
-    totalCents: 90_000,
-    signalCents: 15_000,
-    entryCents: 0,
-    installmentCount: 6,
+    installmentCount: revisionalVeiculoInstallments,
     dueDateRule: { type: 'FIXED_DAY', day: 10 },
   },
 ]
@@ -381,13 +455,12 @@ export const pilotDocumentRequirements: DocumentRequirement[] = [
 ]
 
 export const pilotProduct: ProductSnapshot = {
-  id: 'prod-pilot-busca-apreensao',
-  slug: 'defesa-busca-apreensao',
-  name: 'Defesa em Busca e Apreensão',
-  shortName: 'Busca e Apreensão',
-  description:
-    'Defesa de pessoas físicas contra bancos e financeiras em ações de busca e apreensão de veículo.',
-  version: 1,
+  id: 'prod-pilot-assessoria-juridica',
+  slug: 'assessoria-juridica',
+  name: 'Assessoria Jurídica',
+  shortName: 'Assessoria',
+  description: 'Esteira de contratos da Monteiro Veloso Advogados.',
+  version: 2,
   contractLabel: 'Contrato de prestação de serviços advocatícios',
   unlockCondition: 'AFTER_BOTH',
   formSchema: pilotFormSchema,

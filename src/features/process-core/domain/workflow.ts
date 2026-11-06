@@ -11,6 +11,27 @@ import type {
   ProcessTrack,
 } from '../types'
 
+const FROZEN_STATUSES = new Set([
+  'CONTRATO_EM_GERACAO',
+  'AGUARDANDO_ASSINATURA_CLIENTE',
+  'AGUARDANDO_ASSINATURA_INTERNA',
+  'AGUARDANDO_PAGAMENTO',
+  'AGUARDANDO_DOCUMENTOS',
+  'DOCUMENTOS_EM_PROCESSAMENTO',
+  'DOCUMENTACAO_CONCLUIDA',
+  'CONCLUIDO',
+  'CANCELADO',
+  'ERRO_REQUER_INTERVENCAO',
+])
+
+/** Depois do envio para assinatura, dados e contrato não são mais editáveis. */
+export function isProcessFrozen(process: ContractProcess): boolean {
+  return (
+    FROZEN_STATUSES.has(process.generalStatus) ||
+    process.signatureStatus !== 'NAO_GERADA'
+  )
+}
+
 export function areDocumentsUnlocked(process: ContractProcess): boolean {
   if (process.generalStatus === 'CANCELADO') return false
   if (!process.completedSteps.includes('pagamento')) return false

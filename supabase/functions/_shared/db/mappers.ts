@@ -17,6 +17,7 @@ import type {
   FinancialSnapshot,
   FormField,
   FormFieldOption,
+  FormFieldVisibility,
   FormStep,
   GeneralStatus,
   PaymentCharge,
@@ -24,6 +25,8 @@ import type {
   PaymentPlan,
   PaymentStatus,
   ProductService,
+  ServiceObjectType,
+  ServiceSuccessMode,
   SignatureDocumentState,
   SignatureStatus,
   UnlockCondition,
@@ -66,6 +69,9 @@ const FIELD_NAME_MAP: Record<string, string> = {
   modelo_veiculo: 'extra.vehicle_model',
   instituicao_financeira: 'extra.finance_institution',
   numero_contrato: 'extra.contract_number',
+  banco_instituicao_financeira: 'extra.banco_instituicao_financeira',
+  ente_federativo_e_lei_aplicavel: 'extra.ente_federativo_e_lei_aplicavel',
+  descricao_adicional_do_objeto: 'extra.descricao_adicional_do_objeto',
 }
 
 const MARITAL_LABELS: Record<string, string> = {
@@ -89,6 +95,9 @@ const WIDE_FIELDS = new Set([
   'finance_institution',
   'numero_contrato',
   'contract_number',
+  'banco_instituicao_financeira',
+  'ente_federativo_e_lei_aplicavel',
+  'descricao_adicional_do_objeto',
 ])
 
 export function mapFormSchema(schema: unknown): FormStep[] {
@@ -112,6 +121,7 @@ function mapField(field: DbFormField | FormField): FormField {
   const options = field.options?.map((option) => mapOption(field.name, option))
   const autoComplete = dbField.autocomplete ?? field.autoComplete
   const defaultValue = dbField.default
+  const visibleWhen = mapVisibility(dbField.visibleWhen)
 
   return {
     name,
@@ -124,10 +134,30 @@ function mapField(field: DbFormField | FormField): FormField {
     ...(field.maxLength ? { maxLength: field.maxLength } : {}),
     ...(defaultValue ? { defaultValue } : {}),
     ...(options ? { options } : {}),
+    ...(visibleWhen ? { visibleWhen } : {}),
     ...(field.colSpan ?? (WIDE_FIELDS.has(field.name) ? 2 : 1)
       ? { colSpan: (field.colSpan ?? (WIDE_FIELDS.has(field.name) ? 2 : 1)) as 1 | 2 }
       : {}),
   }
+}
+
+/** Converte a condição do banco (texto livre) para o union tipado do domínio. */
+function mapVisibility(
+  visibleWhen: DbFormField['visibleWhen'] | undefined,
+): FormFieldVisibility | undefined {
+  const raw = visibleWhen?.objectType
+  if (!raw) return undefined
+
+  if (Array.isArray(raw)) {
+    const values = raw.filter(isObjectType)
+    return values.length > 0 ? { objectType: values } : undefined
+  }
+
+  return isObjectType(raw) ? { objectType: raw } : undefined
+}
+
+function isObjectType(value: string): value is ServiceObjectType {
+  return value === 'BANK' || value === 'PUBLIC_ENTITY' || value === 'NONE'
 }
 
 function resolveFieldType(field: DbFormField | FormField): FormField['type'] {
@@ -192,7 +222,25 @@ export function mapService(service: DbProductService): ProductService {
     name: service.name,
     description: service.description,
     totalCents: service.total_cents,
+    // Fallbacks cobrem linhas anteriores à migration do formulário v2.
+    groupNumber: service.group_number ?? 1,
+    objectType: isObjectType(service.object_type) ? service.object_type : 'NONE',
+    successMode: mapSuccessMode(service.success_mode),
+    kitCode: service.kit_code ?? '',
+    requiresVehicleData: service.requires_vehicle_data ?? false,
   }
+}
+
+function mapSuccessMode(value: string | null | undefined): ServiceSuccessMode {
+  if (
+    value === 'REDUCAO' ||
+    value === 'CLAUSULA_BRANCA' ||
+    value === 'CLAUSULA_ADMINISTRATIVA'
+  ) {
+    return value
+  }
+
+  return 'CLAUSULA_BRANCA'
 }
 
 export function mapClient(
@@ -221,9 +269,9 @@ export function mapClient(
     cpf: pickString(form.cpf, client?.cpf) ?? '',
     email: pickString(form.email, client?.email) ?? '',
     phone: normalizePhone(pickString(form.phone, client?.phone_e164) ?? ''),
-    maritalStatus: pickString(form.maritalStatus) ?? '',
-    profession: pickString(form.profession) ?? '',
-    nationality: pickString(form.nationality) ?? 'Brasileira',
+    maritalStatus: pickString(form.maritalStatus, client?.marital_status) ?? '',
+    profession: pickString(form.profession, client?.profession) ?? '',
+    nationality: pickString(form.nationality, client?.nationality) ?? 'Brasileira',
     address,
     extra: Object.fromEntries(
       Object.entries(extra)
@@ -267,6 +315,7 @@ export function mapProcessBundle(bundle: ProcessBundle): ContractProcess {
     documentsStatus: process.documents_status as DocumentsStatus,
     financial,
     selectedPlanId: process.selected_plan_id,
+    selectedServiceId: process.selected_service_id ?? null,
     currentStep: process.current_step as WizardStepId,
     completedSteps: process.completed_steps as WizardStepId[],
     signature:

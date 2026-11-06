@@ -46,7 +46,14 @@ export function ServiceSelector({ services, value, onChange }: ServiceSelectorPr
                 className="sr-only"
               />
               <div>
-                <p className="text-[0.92rem] font-bold text-ink">{service.name}</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[0.92rem] font-bold text-ink">{service.name}</p>
+                  {service.kitCode ? (
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-[0.1em] text-field">
+                      Grupo {service.groupNumber}
+                    </span>
+                  ) : null}
+                </div>
                 <p className="mt-1 max-w-[52ch] text-[0.8rem] leading-relaxed text-text-2">
                   {service.description}
                 </p>

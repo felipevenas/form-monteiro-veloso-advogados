@@ -3,14 +3,16 @@ import { isValidCpf } from '@/shared/utils/cpf'
 import { isValidPhone } from '@/shared/utils/phone'
 import { isValidIsoDate } from '@/shared/utils/dates'
 import type { FormField, FormStep } from '@/features/process-core'
+import { isFieldVisible, type FormContext } from '../utils/formUtils'
 
 type SchemaNode = {
   leaf?: z.ZodTypeAny
+  required: boolean
   children: Record<string, SchemaNode>
 }
 
 function createNode(): SchemaNode {
-  return { children: {} }
+  return { required: false, children: {} }
 }
 
 function fieldSchema(field: FormField): z.ZodTypeAny {
@@ -65,6 +67,7 @@ function fieldSchema(field: FormField): z.ZodTypeAny {
 /** Gera o schema Zod de uma etapa a partir do schema declarativo do produto. */
 export function buildStepSchema(
   step: FormStep,
+  context?: FormContext,
 ): z.ZodType<Record<string, unknown>, Record<string, unknown>> {
   const root = createNode()
 
@@ -80,10 +83,24 @@ export function buildStepSchema(
     const leaf = parts[parts.length - 1]
     if (!leaf) continue
 
+    const visible = isFieldVisible(field, context)
+
+    if (!visible) {
+      node.children[leaf] = {
+        required: false,
+        children: {},
+        leaf: z.unknown().optional(),
+      }
+      continue
+    }
+
     const base = fieldSchema(field)
+    const required = field.required
+
     node.children[leaf] = {
+      required,
       children: {},
-      leaf: field.required ? base : z.union([base, z.literal('')]).optional(),
+      leaf: required ? base : z.union([base, z.literal('')]).optional(),
     }
   }
 
@@ -95,9 +112,18 @@ export function buildStepSchema(
 
 function toZodShape(node: SchemaNode): Record<string, z.ZodTypeAny> {
   return Object.fromEntries(
-    Object.entries(node.children).map(([key, child]) => [
-      key,
-      child.leaf ?? z.object(toZodShape(child)).passthrough(),
-    ]),
+    Object.entries(node.children).map(([key, child]) => {
+      if (child.leaf) return [key, child.leaf]
+
+      const objectSchema = z.object(toZodShape(child)).passthrough()
+      const hasRequiredDescendant = Object.values(child.children).some(hasRequiredLeaf)
+
+      return [key, hasRequiredDescendant ? objectSchema : objectSchema.optional()]
+    }),
   )
+}
+
+function hasRequiredLeaf(node: SchemaNode): boolean {
+  if (node.required) return true
+  return Object.values(node.children).some(hasRequiredLeaf)
 }

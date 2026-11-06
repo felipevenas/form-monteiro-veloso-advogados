@@ -1,4 +1,25 @@
-import type { FormStep } from '@/features/process-core'
+import type { FormField, FormStep, ServiceObjectType } from '@/features/process-core'
+
+export interface FormContext {
+  objectType?: ServiceObjectType
+}
+
+/**
+ * Um campo sem `visibleWhen` é sempre visível.
+ * Com `visibleWhen.objectType`, o campo só aparece quando o contexto informa
+ * um dos tipos de objeto aceitos. Sem contexto, o campo condicional fica oculto.
+ */
+export function isFieldVisible(field: FormField, context?: FormContext): boolean {
+  if (!field.visibleWhen) return true
+  if (!field.visibleWhen.objectType) return true
+
+  const allowed = Array.isArray(field.visibleWhen.objectType)
+    ? field.visibleWhen.objectType
+    : [field.visibleWhen.objectType]
+
+  if (!context?.objectType) return false
+  return allowed.includes(context.objectType)
+}
 
 export function getByPath(source: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((current, part) => {

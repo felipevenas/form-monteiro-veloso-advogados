@@ -6,6 +6,8 @@ interface WizardFlowProps {
   steps: FormStep[]
   currentIndex: number
   completedSteps: readonly string[]
+  /** Etapas já congeladas pela assinatura; não podem ser reabertas. */
+  lockedSteps?: readonly string[]
   onSelect: (index: number) => void
 }
 
@@ -13,6 +15,7 @@ export function WizardFlow({
   steps,
   currentIndex,
   completedSteps,
+  lockedSteps = [],
   onSelect,
 }: WizardFlowProps) {
   return (
@@ -57,8 +60,15 @@ export function WizardFlow({
           {steps.map((step, index) => {
             const completed = index < currentIndex || completedSteps.includes(step.id)
             const active = index === currentIndex
-            const reachable = completed || active
-            const status = active ? 'Em andamento' : completed ? 'Concluída' : 'Aguardando'
+            const locked = lockedSteps.includes(step.id)
+            const reachable = (completed || active) && !locked
+            const status = locked
+              ? 'Bloqueada'
+              : active
+                ? 'Em andamento'
+                : completed
+                  ? 'Concluída'
+                  : 'Aguardando'
 
             return (
               <li key={step.id} className="flex flex-1 items-start last:flex-none">
@@ -67,9 +77,11 @@ export function WizardFlow({
                   onClick={() => onSelect(index)}
                   disabled={!reachable}
                   aria-current={active ? 'step' : undefined}
+                  aria-disabled={locked || undefined}
                   className={cn(
                     'group relative flex w-full flex-col items-center gap-2 px-1 text-center',
                     reachable ? 'cursor-pointer' : 'cursor-default',
+                    locked ? 'opacity-60' : '',
                   )}
                 >
                   <span

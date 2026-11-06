@@ -67,6 +67,7 @@ function makeProcess(overrides: Partial<ContractProcess> = {}): ContractProcess 
       dueDateRule: { type: 'FIXED_DAY', day: 10 },
       computedAt: '2026-10-28T10:00:00.000Z',
     },
+    selectedServiceId: null,
     selectedPlanId: 'plano',
     currentStep: 'assinatura',
     completedSteps: ['dados', 'contrato'],
