@@ -145,6 +145,12 @@ export function PaymentStep({
                 <dd className="font-semibold text-ink">{formatBRL(plan.signalCents)}</dd>
               </div>
             ) : null}
+            {plan.entryCents > 0 ? (
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <dt className="text-text-2">Entrada</dt>
+                <dd className="font-semibold text-ink">{formatBRL(plan.entryCents)}</dd>
+              </div>
+            ) : null}
             {process.financial?.installments.map((installment) => (
               <div
                 key={installment.number}

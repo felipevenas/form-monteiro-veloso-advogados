@@ -91,7 +91,7 @@ export function SignatureStep({
               : refused
                 ? 'Assinatura recusada'
                 : generating
-                  ? 'Preparando e enviando seu contrato…'
+                  ? 'Contrato em preparação pela equipe'
                   : 'Aguardando sua assinatura'}
           </p>
           <p className="text-[0.8rem] leading-relaxed text-text-2">
@@ -100,7 +100,7 @@ export function SignatureStep({
               : refused
                 ? 'Fale com a equipe para revisar o contrato e reenviar.'
                 : generating
-                  ? 'Assim que o contrato for gerado, o link chega no seu WhatsApp e fica disponível abaixo.'
+                  ? 'O escritório está preparando seu contrato. O link de assinatura chega no seu WhatsApp.'
                   : `Enviamos o contrato para ${formatPhone(process.client.phone ?? '')}. Abra o link no WhatsApp e conclua a assinatura.`}
           </p>
         </div>
@@ -153,10 +153,10 @@ export function SignatureStep({
       ) : null}
 
       {generating ? (
-        <Alert tone="info" title="Contrato em preparação">
+        <Alert tone="info" title="O que acontece agora">
           <p>
-            Estamos gerando os documentos e enviando o link pelo WhatsApp. Se demorar, use o botão
-            abaixo para tentar novamente.
+            Não é necessário reenviar. O escritório avisa quando o contrato estiver pronto para
+            assinatura.
           </p>
         </Alert>
       ) : null}

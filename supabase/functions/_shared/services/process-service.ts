@@ -8,7 +8,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { loadHolidays, loadProcessBundle, findProductContext } from '../db/queries.ts'
 import { mapFormSchema, mapProcessBundle } from '../db/mappers.ts'
-import type { DbProcess, ProcessBundle } from '../db/types.ts'
+import type { DbClient, DbProcess, DbProductService, ProcessBundle } from '../db/types.ts'
 import { fail } from '../http/errors.ts'
 import { todayInSaoPaulo } from '../domain/dates.ts'
 import { buildFinancialSnapshot } from '../domain/financial.ts'
@@ -29,8 +29,43 @@ import {
   WIZARD_STEP_ORDER,
   type ContractProcess,
   type FinancialSnapshot,
+  type FormStep,
+  type ServiceObjectType,
   type WizardStepId,
 } from '../domain/types.ts'
+
+/**
+ * Depois que o contrato entra em geração/assinatura, os dados do cliente e a
+ * escolha de serviço/plano ficam congelados. Reabertura é operação de admin.
+ */
+const FROZEN_STATUSES = new Set([
+  'CONTRATO_EM_GERACAO',
+  'AGUARDANDO_ASSINATURA_CLIENTE',
+  'AGUARDANDO_ASSINATURA_INTERNA',
+  'AGUARDANDO_PAGAMENTO',
+  'AGUARDANDO_DOCUMENTOS',
+  'DOCUMENTOS_EM_PROCESSAMENTO',
+  'DOCUMENTACAO_CONCLUIDA',
+  'CONCLUIDO',
+  'CANCELADO',
+  'ERRO_REQUER_INTERVENCAO',
+])
+
+function isProcessFrozen(process: DbProcess): boolean {
+  return (
+    FROZEN_STATUSES.has(process.general_status) ||
+    process.signature_status !== 'NAO_GERADA'
+  )
+}
+
+function assertProcessEditable(process: DbProcess): void {
+  if (isProcessFrozen(process)) {
+    throw fail.conflict(
+      'PROCESS_FROZEN',
+      'Este processo já foi enviado para assinatura e não pode mais ser alterado pelo formulário.',
+    )
+  }
+}
 
 export interface StartInput {
   productSlug?: string
@@ -121,6 +156,8 @@ export async function saveStep(
     throw fail.unprocessable('INVALID_STEP', 'Esta etapa não é editável pelo formulário.')
   }
 
+  assertProcessEditable(process)
+
   const bundle = await loadProcessBundle(supabase, process.id)
   if (!bundle) throw fail.notFound('Processo não encontrado.')
 
@@ -140,18 +177,30 @@ export async function saveStep(
     throw fail.invalidInput('Envie os valores da etapa.')
   }
 
-  const normalized = normalizeStepValues(step, values)
-  const issues = validateStep(step, normalized)
+  const service = stepId === 'contrato' ? resolveContractService(bundle, values) : null
+  const context = service
+    ? { objectType: service.object_type as ServiceObjectType }
+    : undefined
+
+  let normalized = normalizeStepValues(step, values, context)
+  const issues = validateStep(step, normalized, context)
 
   if (issues.length > 0) {
     throw fail.unprocessable('VALIDATION_FAILED', 'Revise os campos destacados.', issues)
   }
 
+  if (service) {
+    normalized = applyServiceToValues(normalized, step, service)
+  }
+
   let clientId = process.client_id
 
   if (stepId === 'dados') {
-    clientId = await ensureClient(supabase, process, normalized)
-    if (clientId) await updateClientAddress(supabase, clientId, normalized)
+    const client = await ensureClient(supabase, process, normalized)
+    clientId = client.id
+    if (client.shouldUpdateAddress) {
+      await updateClientAddress(supabase, client.id, normalized)
+    }
   }
 
   const formData = mergeDeep(process.form_data, normalized)
@@ -170,6 +219,7 @@ export async function saveStep(
     .update({
       client_id: clientId,
       form_data: formData,
+      selected_service_id: service?.id ?? process.selected_service_id,
       completed_steps: [...completed],
       current_step: nextStep,
       general_status: nextGeneralStatus,
@@ -194,6 +244,88 @@ export async function saveStep(
   return loadDto(supabase, updated.id)
 }
 
+/**
+ * O formulário v1 não escolhe serviço na etapa `contrato` — o plano é que
+ * aponta o serviço. A partir da v2 a escolha é explícita e cada serviço tem
+ * kit próprio, então `produto` passa a ser obrigatório.
+ */
+function resolveContractService(
+  bundle: ProcessBundle,
+  values: Record<string, unknown>,
+): DbProductService | null {
+  const serviceCode = stringValue(values.produto)
+  const requiresService =
+    bundle.version.version >= 2 || bundle.services.some((item) => Boolean(item.kit_code))
+
+  if (!serviceCode) {
+    if (requiresService) {
+      throw fail.unprocessable('SERVICE_REQUIRED', 'Escolha o serviço contratado.')
+    }
+    return null
+  }
+
+  const service = bundle.services.find((item) => item.code === serviceCode) ?? null
+  if (!service) {
+    throw fail.unprocessable('SERVICE_NOT_FOUND', 'Serviço inválido para este produto.')
+  }
+
+  return service
+}
+
+/** Fixa o serviço no form_data e apaga o objeto que não se aplica. */
+function applyServiceToValues(
+  normalized: Record<string, unknown>,
+  step: FormStep,
+  service: DbProductService,
+): Record<string, unknown> {
+  let result = mergeDeep(normalized, { produto: service.code })
+
+  if (service.object_type !== 'BANK') {
+    result = clearStepField(result, step, 'banco_instituicao_financeira')
+  }
+
+  if (service.object_type !== 'PUBLIC_ENTITY') {
+    result = clearStepField(result, step, 'ente_federativo_e_lei_aplicavel')
+  }
+
+  return result
+}
+
+/**
+ * Zera o campo no caminho mapeado (ex.: `extra.banco_instituicao_financeira`),
+ * para que um objeto informado antes da troca de serviço não sobreviva.
+ */
+function clearStepField(
+  values: Record<string, unknown>,
+  step: FormStep,
+  dbFieldName: string,
+): Record<string, unknown> {
+  const field = step.fields.find(
+    (item) => item.name === dbFieldName || item.name.endsWith(`.${dbFieldName}`),
+  )
+
+  if (!field) return values
+
+  return mergeDeep(values, buildValuePath(field.name, ''))
+}
+
+function buildValuePath(path: string, value: unknown): Record<string, unknown> {
+  const parts = path.split('.')
+  const root: Record<string, unknown> = {}
+  let current = root
+
+  for (const part of parts.slice(0, -1)) {
+    const next: Record<string, unknown> = {}
+    current[part] = next
+    current = next
+  }
+
+  const leaf = parts[parts.length - 1]
+  if (leaf) current[leaf] = value
+
+  return root
+}
+
 export async function saveDraft(
   supabase: SupabaseClient,
   process: DbProcess,
@@ -204,16 +336,54 @@ export async function saveDraft(
     throw fail.unprocessable('INVALID_STEP', 'Etapa inválida.')
   }
 
+  if (stepId !== 'dados' && stepId !== 'contrato') {
+    throw fail.unprocessable('INVALID_STEP', 'Esta etapa não aceita rascunho pelo formulário.')
+  }
+
+  assertProcessEditable(process)
+
   if (!isRecord(values)) {
     throw fail.invalidInput('Envie os valores do rascunho.')
   }
 
-  const formData = mergeDeep(process.form_data, values)
+  const bundle = await loadProcessBundle(supabase, process.id)
+  if (!bundle) throw fail.notFound('Processo não encontrado.')
+
+  const steps = mapFormSchema(bundle.version.form_schema)
+  const step = steps.find((item) => item.id === stepId)
+  if (!step) throw fail.unprocessable('STEP_NOT_FOUND', 'Etapa não configurada para este produto.')
+
+  const service = stepId === 'contrato' ? resolveContractService(bundle, values) : null
+  const context = service
+    ? { objectType: service.object_type as ServiceObjectType }
+    : undefined
+
+  // Rascunho usa o mesmo allowlist/normalização do submit, mas aceita campos
+  // incompletos. Assim o autosave não serve de canal para injetar chaves
+  // arbitrárias, objetos ou textos acima do limite no form_data.
+  let normalized = normalizeStepValues(step, values, context)
+  const issues = validateStep(step, normalized, context, {
+    requireFields: false,
+    checkFormat: false,
+  })
+
+  if (issues.length > 0) {
+    throw fail.unprocessable('VALIDATION_FAILED', 'Revise os campos destacados.', issues)
+  }
+
+  if (service) {
+    normalized = applyServiceToValues(normalized, step, service)
+  }
+
+  const formData = mergeDeep(process.form_data, normalized)
   const savedAt = new Date().toISOString()
 
   const { error } = await supabase
     .from('contract_processes')
-    .update({ form_data: formData })
+    .update({
+      form_data: formData,
+      ...(service ? { selected_service_id: service.id } : {}),
+    })
     .eq('id', process.id)
 
   if (error) {
@@ -229,11 +399,45 @@ export async function savePlan(
   process: DbProcess,
   planId: string,
 ): Promise<ContractProcess> {
+  assertProcessEditable(process)
+
   const bundle = await loadProcessBundle(supabase, process.id)
   if (!bundle) throw fail.notFound('Processo não encontrado.')
 
   const plan = bundle.plans.find((item) => item.id === planId && item.active)
   if (!plan) throw fail.unprocessable('PLAN_NOT_FOUND', 'Escolha uma forma de pagamento válida.')
+
+  if (!process.completed_steps.includes('contrato')) {
+    throw fail.unprocessable(
+      'CONTRACT_STEP_REQUIRED',
+      'Salve os dados do contrato antes de escolher o plano.',
+    )
+  }
+
+  const requiresService =
+    bundle.version.version >= 2 || bundle.services.some((item) => Boolean(item.kit_code))
+
+  if (requiresService) {
+    if (!process.selected_service_id) {
+      throw fail.unprocessable('SERVICE_REQUIRED', 'Escolha o serviço contratado.')
+    }
+
+    if (!plan.service_id || plan.service_id !== process.selected_service_id) {
+      throw fail.unprocessable(
+        'PLAN_SERVICE_MISMATCH',
+        'Escolha um plano do serviço selecionado.',
+      )
+    }
+  } else if (
+    process.selected_service_id &&
+    plan.service_id &&
+    process.selected_service_id !== plan.service_id
+  ) {
+    throw fail.unprocessable(
+      'PLAN_SERVICE_MISMATCH',
+      'Escolha um plano do serviço selecionado.',
+    )
+  }
 
   const completed = new Set(process.completed_steps)
   completed.add('contrato')
@@ -310,6 +514,53 @@ export async function startSignature(
 
   const plan = bundle.plans.find((item) => item.id === planId && item.active)
   if (!plan) throw fail.unprocessable('PLAN_NOT_FOUND', 'Escolha uma forma de pagamento válida.')
+
+  if (
+    isProcessFrozen(process) &&
+    process.selected_plan_id &&
+    input.planId &&
+    input.planId !== process.selected_plan_id
+  ) {
+    throw fail.conflict(
+      'PROCESS_FROZEN',
+      'O plano deste processo já foi congelado e não pode ser trocado.',
+    )
+  }
+
+  const requiresService =
+    bundle.version.version >= 2 || bundle.services.some((item) => Boolean(item.kit_code))
+
+  if (requiresService) {
+    if (!process.selected_service_id) {
+      throw fail.unprocessable('SERVICE_REQUIRED', 'Escolha o serviço contratado.')
+    }
+
+    if (!plan.service_id || plan.service_id !== process.selected_service_id) {
+      throw fail.unprocessable(
+        'PLAN_SERVICE_MISMATCH',
+        'Escolha um plano do serviço selecionado.',
+      )
+    }
+
+    const kit = bundle.kitItems.filter(
+      (item) => item.service_id === process.selected_service_id,
+    )
+    if (kit.length === 0) {
+      throw fail.unprocessable(
+        'KIT_NOT_CONFIGURED',
+        'O kit documental deste serviço ainda não está configurado.',
+      )
+    }
+  } else if (
+    process.selected_service_id &&
+    plan.service_id &&
+    process.selected_service_id !== plan.service_id
+  ) {
+    throw fail.unprocessable(
+      'PLAN_SERVICE_MISMATCH',
+      'Escolha um plano do serviço selecionado.',
+    )
+  }
 
   const existingFinancial = (process.financial_snapshot as
     | { planId?: string }
@@ -587,7 +838,13 @@ async function ensureSignatureRows(
 ): Promise<void> {
   if (bundle.signatures.length > 0) return
 
-  const kitRows = bundle.kitItems.map((item) => ({
+  const selectedServiceId = bundle.process.selected_service_id
+  // v1 usa o kit da versão (service_id nulo); v2 assina só o kit do serviço.
+  const applicableItems = bundle.kitItems.filter(
+    (item) => item.service_id === null || item.service_id === selectedServiceId,
+  )
+
+  const kitRows = applicableItems.map((item) => ({
     contract_process_id: processId,
     provider: 'zapsign',
     template_id: item.contract_template_id,
@@ -684,12 +941,28 @@ async function sendContractToSigners(
     const template = signature.template_id ? templateById.get(signature.template_id) : null
     const externalTemplateId = template?.external_template_id?.trim() ?? ''
 
-    if (!externalTemplateId || externalTemplateId === 'PREENCHER_CONTRATO') {
+    // Placeholders do catálogo (`PREENCHER_CONTRATO`, `PREENCHER_CONTRATO_01`...)
+    // nunca podem virar chamada real no provedor.
+    if (!externalTemplateId || externalTemplateId.startsWith('PREENCHER_')) {
       await ensureAlert(supabase, {
         key: `zapsign-template-missing:${processId}:${signature.template_id ?? 'none'}`,
         title: 'Template do contrato não configurado',
         description:
-          'Substitua o ID PREENCHER_CONTRATO pelo token real do template no ZapSign.',
+          'Substitua o ID PREENCHER_* pelo token real do template no ZapSign.',
+        processId,
+        severity: 'CRITICAL',
+      })
+      continue
+    }
+
+    // Um template com ID real mas ainda em DRAFT não pode ser usado: o jurídico
+    // precisa aprovar o modelo antes de qualquer geração automática.
+    if (template?.approval_status !== 'APPROVED') {
+      await ensureAlert(supabase, {
+        key: `zapsign-template-draft:${processId}:${signature.template_id ?? 'none'}`,
+        title: 'Template do contrato não aprovado',
+        description:
+          'O template tem ID no ZapSign, mas ainda está em DRAFT. Aprove o modelo antes de gerar o contrato.',
         processId,
         severity: 'CRITICAL',
       })
@@ -839,12 +1112,15 @@ async function ensureClient(
   supabase: SupabaseClient,
   process: DbProcess,
   values: Record<string, unknown>,
-): Promise<string> {
+): Promise<{ id: string; shouldUpdateAddress: boolean }> {
   const fullName = stringValue(values.fullName)
   const cpf = stringValue(values.cpf)?.replace(/\D+/g, '') ?? ''
   const email = stringValue(values.email)?.toLowerCase() ?? null
   const phone = stringValue(values.phone)
   const phoneE164 = phone ? toE164Br(phone) : null
+  const maritalStatus = stringValue(values.maritalStatus)
+  const profession = stringValue(values.profession)
+  const nationality = stringValue(values.nationality) ?? 'Brasileira'
 
   if (!fullName || !cpf || !isValidCpf(cpf)) {
     throw fail.unprocessable('VALIDATION_FAILED', 'Nome e CPF válidos são obrigatórios.')
@@ -852,9 +1128,9 @@ async function ensureClient(
 
   const { data: existing, error: lookupError } = await supabase
     .from('clients')
-    .select('id')
+    .select('*')
     .eq('cpf', cpf)
-    .maybeSingle<{ id: string }>()
+    .maybeSingle<DbClient>()
 
   if (lookupError) {
     console.error('[process] falha ao buscar cliente:', lookupError.message)
@@ -862,21 +1138,52 @@ async function ensureClient(
   }
 
   if (existing) {
-    const { error } = await supabase
-      .from('clients')
-      .update({
-        full_name: fullName,
-        email,
-        phone_e164: phoneE164,
-      })
-      .eq('id', existing.id)
+    // O formulário público não pode sobrescrever o contato de um cliente já
+    // cadastrado: sem prova de titularidade, isso permitiria sequestrar um
+    // processo trocando o e-mail/WhatsApp da vítima. Preenchemos apenas campos
+    // vazios e sinalizamos divergência para revisão humana.
+    const patch: Record<string, unknown> = {}
 
-    if (error) {
-      console.error('[process] falha ao atualizar cliente:', error.message)
-      throw fail.internal()
+    if (!existing.email && email) patch.email = email
+    if (!existing.phone_e164 && phoneE164) patch.phone_e164 = phoneE164
+    if (!existing.marital_status && maritalStatus) patch.marital_status = maritalStatus
+    if (!existing.profession && profession) patch.profession = profession
+    if (!existing.nationality && nationality) patch.nationality = nationality
+
+    if (Object.keys(patch).length > 0) {
+      const { error } = await supabase
+        .from('clients')
+        .update(patch)
+        .eq('id', existing.id)
+
+      if (error) {
+        console.error('[process] falha ao completar cliente:', error.message)
+        throw fail.internal()
+      }
     }
 
-    return existing.id
+    const emailChanged = Boolean(
+      existing.email && email && existing.email.toLowerCase() !== email,
+    )
+    const phoneChanged = Boolean(
+      existing.phone_e164 && phoneE164 && existing.phone_e164 !== phoneE164,
+    )
+
+    if (emailChanged || phoneChanged) {
+      await ensureAlert(supabase, {
+        key: `client-contact-divergence:${process.id}`,
+        title: 'CPF já cadastrado com contato diferente',
+        description:
+          'O formulário informou e-mail ou WhatsApp diferente do cadastro existente. Os dados originais foram preservados; confira antes de gerar o contrato.',
+        processId: process.id,
+        severity: 'WARNING',
+      })
+    }
+
+    return {
+      id: existing.id,
+      shouldUpdateAddress: !hasAddress(existing.address),
+    }
   }
 
   const { data, error } = await supabase
@@ -887,6 +1194,9 @@ async function ensureClient(
       email,
       phone_e164: phoneE164,
       address: {},
+      marital_status: maritalStatus,
+      profession,
+      nationality,
     })
     .select('id')
     .single<{ id: string }>()
@@ -896,7 +1206,14 @@ async function ensureClient(
     throw fail.internal()
   }
 
-  return data.id
+  return { id: data.id, shouldUpdateAddress: true }
+}
+
+function hasAddress(address: Record<string, unknown> | null | undefined): boolean {
+  if (!address) return false
+  return Object.values(address).some(
+    (value) => typeof value === 'string' && value.trim() !== '',
+  )
 }
 
 async function updateClientAddress(

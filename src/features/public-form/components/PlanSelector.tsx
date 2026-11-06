@@ -73,6 +73,7 @@ export function PlanSelector({ plans, planId, onChange }: PlanSelectorProps) {
                 <p className="font-display text-xl text-ink">{formatBRL(plan.totalCents)}</p>
                 <p className="text-[0.72rem] text-text-2">
                   {plan.signalCents > 0 ? `Sinal de ${formatBRL(plan.signalCents)}` : 'Sem sinal'}
+                  {plan.entryCents > 0 ? ` · Entrada de ${formatBRL(plan.entryCents)}` : ''}
                   {plan.installmentCount > 1
                     ? ` · ${plan.installmentCount} parcelas`
                     : ' · à vista'}
@@ -96,6 +97,14 @@ export function PlanSelector({ plans, planId, onChange }: PlanSelectorProps) {
                 <span className="text-text-2">Sinal na assinatura</span>
                 <span className="font-semibold text-ink">
                   {formatBRL(selected.result.value.signalCents)}
+                </span>
+              </li>
+            ) : null}
+            {selected.result.value.entryCents > 0 ? (
+              <li className="flex items-center justify-between py-2">
+                <span className="text-text-2">Entrada</span>
+                <span className="font-semibold text-ink">
+                  {formatBRL(selected.result.value.entryCents)}
                 </span>
               </li>
             ) : null}

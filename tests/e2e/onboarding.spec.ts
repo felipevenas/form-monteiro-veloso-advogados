@@ -41,7 +41,7 @@ async function fillDados(page: Page, name = 'Ana Paula Souza') {
   await page.getByLabel(/Nacionalidade/).fill('Brasileira')
 
   await page.getByLabel(/CEP/).fill('40015000')
-  await expect(page.getByLabel(/Logradouro/)).toHaveValue('Rua Portugal')
+  await expect(page.getByLabel(/Rua \/ avenida/)).toHaveValue('Rua Portugal')
   await expect(page.getByLabel(/Cidade/)).toHaveValue('Salvador')
   await expect(page.getByLabel(/UF/)).toHaveValue('BA')
 
@@ -53,10 +53,7 @@ async function fillDados(page: Page, name = 'Ana Paula Souza') {
 }
 
 async function fillContract(page: Page) {
-  await page.getByLabel(/Placa do veículo/).fill('ABC1D23')
-  await page.getByLabel(/Modelo do veículo/).fill('Fiat Argo 1.0')
-  await page.getByLabel(/Banco ou financeira/).fill('Banco Itaú')
-  await page.getByLabel(/Número do contrato/).fill('IT-2025-99881')
+  await page.getByLabel(/Banco \/ instituição financeira/).fill('Banco Itaú')
 
   await page
     .getByRole('radio', { name: /Sinal \+ 6 parcelas/ })
@@ -142,7 +139,7 @@ test.describe('Formulário público', () => {
     await mockCep(page)
 
     await page.getByLabel(/CEP/).fill('40015000')
-    await expect(page.getByLabel(/Logradouro/)).toHaveValue('Rua Portugal')
+    await expect(page.getByLabel(/Rua \/ avenida/)).toHaveValue('Rua Portugal')
     await expect(page.getByLabel(/Bairro/)).toHaveValue('Comércio')
     await expect(page.getByLabel(/Cidade/)).toHaveValue('Salvador')
     await expect(page.getByLabel(/UF/)).toHaveValue('BA')
@@ -174,6 +171,62 @@ test.describe('Formulário público', () => {
     await openForm(page)
     const results = await new AxeBuilder({ page }).analyze()
     expect(results.violations).toEqual([])
+  })
+
+  test('mostra o campo do ente federativo para consignados e oculta o banco', async ({
+    page,
+  }) => {
+    await openForm(page)
+    await fillDados(page)
+
+    await page.getByRole('radio', { name: /Limitação dos Consignados/ }).check({ force: true })
+
+    await expect(page.getByLabel(/Ente federativo e lei aplicável/)).toBeVisible()
+    await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveCount(0)
+  })
+
+  test('superendividamento não exige objeto e libera o avanço', async ({ page }) => {
+    await openForm(page)
+    await fillDados(page)
+
+    await page.getByRole('radio', { name: /Superendividamento/ }).check({ force: true })
+
+    await expect(page.getByLabel(/Ente federativo e lei aplicável/)).toHaveCount(0)
+    await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveCount(0)
+
+    await page.getByRole('checkbox', { name: /Li e concordo/ }).check()
+    await page.getByRole('button', { name: 'Continuar para assinatura' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Assinatura do contrato' })).toBeVisible()
+  })
+
+  test('trocar de serviço oculta o campo de banco e não bloqueia o avanço', async ({ page }) => {
+    await openForm(page)
+    await fillDados(page)
+
+    await page.getByRole('radio', { name: /Defesa de Busca e Apreensão/ }).check({ force: true })
+    await page.getByLabel(/Banco \/ instituição financeira/).fill('Banco Itaú')
+    await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveValue('Banco Itaú')
+
+    await page.getByRole('radio', { name: /Superendividamento/ }).check({ force: true })
+    await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveCount(0)
+
+    await page.getByRole('checkbox', { name: /Li e concordo/ }).check()
+    await page.getByRole('button', { name: 'Continuar para assinatura' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Assinatura do contrato' })).toBeVisible()
+  })
+
+  test('mostra o resumo da contratação com o serviço escolhido', async ({ page }) => {
+    await openForm(page)
+    await fillDados(page)
+
+    await page.getByLabel(/Banco \/ instituição financeira/).fill('Banco Itaú')
+
+    const review = page.getByRole('region', { name: 'Resumo da contratação' })
+    await expect(review).toBeVisible()
+    await expect(review.getByText('Revisional de Contrato de Veículo')).toBeVisible()
+    await expect(review.getByText('Banco Itaú')).toBeVisible()
   })
 
   test('funciona em viewport mobile sem overflow horizontal', async ({ page }) => {

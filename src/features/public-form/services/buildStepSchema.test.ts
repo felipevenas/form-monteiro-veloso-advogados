@@ -24,6 +24,28 @@ const address: FormStep = {
   ],
 }
 
+const contract: FormStep = {
+  id: 'contrato',
+  title: 'Contrato',
+  description: '',
+  fields: [
+    {
+      name: 'extra.banco_instituicao_financeira',
+      label: 'Banco / instituição financeira',
+      type: 'text',
+      required: true,
+      visibleWhen: { objectType: 'BANK' },
+    },
+    {
+      name: 'extra.ente_federativo_e_lei_aplicavel',
+      label: 'Ente federativo e lei aplicável',
+      type: 'text',
+      required: true,
+      visibleWhen: { objectType: 'PUBLIC_ENTITY' },
+    },
+  ],
+}
+
 describe('buildStepSchema', () => {
   it('aceita dados válidos', () => {
     const result = buildStepSchema(identification).safeParse({
@@ -68,5 +90,34 @@ describe('buildStepSchema', () => {
 
     expect(withAddress.success).toBe(true)
     expect(withoutCep.success).toBe(false)
+  })
+
+  it('exige apenas o campo condicional do tipo de objeto informado', () => {
+    const bank = buildStepSchema(contract, { objectType: 'BANK' })
+    const publicEntity = buildStepSchema(contract, { objectType: 'PUBLIC_ENTITY' })
+
+    expect(
+      bank.safeParse({ extra: { banco_instituicao_financeira: 'Banco Itaú' } }).success,
+    ).toBe(true)
+    expect(
+      bank.safeParse({ extra: { ente_federativo_e_lei_aplicavel: 'União' } }).success,
+    ).toBe(false)
+
+    expect(
+      publicEntity.safeParse({ extra: { ente_federativo_e_lei_aplicavel: 'União' } }).success,
+    ).toBe(true)
+    expect(
+      publicEntity.safeParse({ extra: { banco_instituicao_financeira: 'Banco Itaú' } }).success,
+    ).toBe(false)
+  })
+
+  it('não exige campos condicionais quando não há contexto de objeto', () => {
+    const withoutContext = buildStepSchema(contract)
+
+    expect(withoutContext.safeParse({}).success).toBe(true)
+    expect(withoutContext.safeParse({ extra: {} }).success).toBe(true)
+    expect(
+      withoutContext.safeParse({ extra: { banco_instituicao_financeira: '' } }).success,
+    ).toBe(true)
   })
 })

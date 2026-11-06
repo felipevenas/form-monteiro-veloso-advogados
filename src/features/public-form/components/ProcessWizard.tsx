@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type { ContractProcess, FormStep } from '@/features/process-core'
-import { processRepository } from '@/features/process-core'
+import { isProcessFrozen, processRepository } from '@/features/process-core'
 import { formatTimeBr } from '@/shared/utils/dates'
 import { mergeDeep } from '@/shared/lib/merge'
 import { Alert } from '@/shared/ui/Alert'
@@ -38,7 +38,7 @@ export function ProcessWizard({
     process.client as Record<string, unknown>,
   )
   const [serviceId, setServiceId] = useState(
-    initialPlan?.serviceId ?? services[0]?.id ?? '',
+    process.selectedServiceId ?? initialPlan?.serviceId ?? services[0]?.id ?? '',
   )
   const [planId, setPlanId] = useState(initialPlan?.id ?? '')
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -48,7 +48,8 @@ export function ProcessWizard({
   const mounted = useRef(false)
 
   const step = steps[stepIndex]
-  const editable = step?.id === 'dados' || step?.id === 'contrato'
+  const frozen = isProcessFrozen(process)
+  const editable = !frozen && (step?.id === 'dados' || step?.id === 'contrato')
 
   const plansForService = plans.filter((plan) => plan.serviceId === serviceId)
   const activePlanId = plansForService.some((plan) => plan.id === planId)
@@ -202,7 +203,11 @@ export function ProcessWizard({
           steps={steps}
           currentIndex={stepIndex}
           completedSteps={process.completedSteps}
+          lockedSteps={frozen ? ['dados', 'contrato'] : []}
           onSelect={(index) => {
+            const target = steps[index]
+            if (frozen && (target?.id === 'dados' || target?.id === 'contrato')) return
+
             void flushAutosave()
             setStepIndex(index)
             setSaveError(null)

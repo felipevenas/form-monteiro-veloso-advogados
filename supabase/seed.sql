@@ -9,7 +9,8 @@ values (
   'Busca e Apreensão',
   'Assessoria jurídica para defesa em ação de busca e apreensão de veículo financiado.',
   true
-);
+)
+on conflict (id) do nothing;
 
 insert into public.product_versions (
   id, product_id, version, status, form_schema, unlock_condition, contract_label,

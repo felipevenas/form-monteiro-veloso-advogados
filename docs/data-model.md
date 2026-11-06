@@ -33,6 +33,9 @@ reset role;
 erDiagram
   profiles ||--o{ human_tasks : "assigned_to"
   products ||--o{ product_versions : "versiona"
+  product_versions ||--o{ product_services : "oferece"
+  product_services ||--o{ payment_plans : "plano"
+  product_services ||--o{ kit_items : "kit"
   product_versions ||--o{ kit_items : "assinatura"
   contract_templates ||--o{ kit_items : "compõe"
   product_versions ||--o{ document_requirements : "exige"
@@ -100,10 +103,17 @@ processo (form_data, status por trilha, snapshot financeiro)
   editar o catálogo nunca altera processos em andamento.
 - **contract_templates** — documentos assináveis e suas `required_variables`.
   `external_template_id` é o id no provedor (ZapSign); placeholder `PREENCHER_*` no seed.
+- **product_services** — serviços vendidos por versão (`code` único na versão, `total_cents`,
+  `active`, `sort_order`). Desde o formulário v2 cada serviço carrega `group_number` (1–4),
+  `object_type` (`BANK` | `PUBLIC_ENTITY` | `NONE`), `success_mode`
+  (`REDUCAO` | `CLAUSULA_BRANCA` | `CLAUSULA_ADMINISTRATIVA`), `kit_code` (código lógico do kit,
+  ex. `ZAPSIGN_CONTRATO_01`) e `requires_vehicle_data`.
 - **kit_items** — quais templates compõem a assinatura de cada versão, com `sort_order` e `signer_role`.
+  `service_id` nulo = documento compartilhado por toda a versão (kit v1, 4 documentos). Com
+  `service_id`, o item só entra no processo daquele serviço (kit v2: contrato + procuração).
 - **document_requirements** — requisitos de upload por versão (`code` único na versão), MIME aceitos e tamanho máximo.
-- **payment_plans** — planos por versão. `due_date_rule` no mesmo formato do frontend
-  (`{"type":"FIXED_DAY","day":10}`, `LAST_DAY_OF_MONTH`, `FIRST_BUSINESS_DAY`, `LAST_BUSINESS_DAY`).
+- **payment_plans** — planos por versão (opcionalmente por `service_id`). `due_date_rule` no mesmo
+  formato do frontend (`{"type":"FIXED_DAY","day":10}`, `LAST_DAY_OF_MONTH`, `FIRST_BUSINESS_DAY`, `LAST_BUSINESS_DAY`).
 - **holidays** — feriados usados no cálculo de dias úteis (`scope`: NATIONAL/STATE/CITY).
 
 ### Cliente e processo
@@ -112,10 +122,14 @@ processo (form_data, status por trilha, snapshot financeiro)
   `phone_e164` no formato `+55...`, `address` jsonb, ids externos Asaas/Infinitum).
   `address` usa as chaves do formulário: `cep`, `logradouro`, `numero`, `complemento`,
   `bairro`, `cidade`, `uf` (o frontend mantém camelCase no domínio e converte na borda).
+  A qualificação civil fica em colunas próprias: `marital_status`, `profession` e
+  `nationality` (padrão `Brasileira`), gravadas a partir da etapa `dados`.
 - **contract_processes** — estado oficial. Quatro status independentes
   (`general_status`, `signature_status`, `payment_status`, `documents_status`), `current_step`,
   `completed_steps[]`, `form_data`, `financial_snapshot` (congelado no momento do aceite),
   `unlock_condition` (copiada da versão), `attribution` (UTMs/origem), `version` (otimista).
+  `selected_plan_id` guarda o plano; `selected_service_id` guarda o serviço escolhido, que
+  define o kit assinado e precisa casar com o `service_id` do plano.
   `public_code` é o identificador exposto ao cliente, nunca o `id`.
 
 ### Acesso público
@@ -184,6 +198,7 @@ Matriz de leitura para `authenticated` (todas as policies exigem `active = true`
 | `contract_processes`, `signatures`, `payments`, `process_events`, `human_tasks`, `audit_logs`, `alerts` | ✓ | ✓ | ✓ | ✓ |
 | `clients` (colunas não sensíveis) | ✓ | ✓ | ✓ | ✓ |
 | `clients_safe.cpf` / `.address` | ✓ | ✓ | ✓ | — (nulo) |
+| `clients_safe.marital_status` / `.profession` / `.nationality` | ✓ | ✓ | ✓ | ✓ |
 | `documents` | ✓ | ✓ | ✓ | — (sem policy) |
 | `sessions`, `otp_codes`, `integration_events`, `outbox_jobs`, `message_logs`, `consent_records`, `rate_limits`, `integration_configurations` | — | — | — | — |
 
@@ -260,6 +275,28 @@ const { data } = await supabase.rpc('consume_rate_limit', {
 - Feriados nacionais de 2026 e 2027 (incluindo 20/11 e Corpus Christi). Carnaval **não** foi
   incluído como `NATIONAL` — se o escritório adotar, cadastrar depois com `scope` apropriado.
 
+### Formulário v2 (DRAFT)
+
+> Criado pela migration `20261105120000_service_kits_form_v2.sql` (não pelo `seed.sql`).
+
+- Versão 2 do mesmo produto (`22222222-2222-4222-8222-222222222223`), `status = DRAFT`,
+  mesmo `unlock_condition` (`AFTER_BOTH`) e `contract_label`. Como `findProductContext` só
+  aceita `APPROVED`, a v1 publicada continua sendo a única atendida pelo formulário.
+- `form_schema` v2: `dados` reúne qualificação, contato e endereço; `contrato` traz o objeto
+  (`banco_instituicao_financeira` com `visibleWhen.objectType = BANK`,
+  `ente_federativo_e_lei_aplicavel` com `PUBLIC_ENTITY`, ambos ocultos em `NONE`) e
+  `descricao_adicional_do_objeto`. `visibleWhen` é resolvido no servidor (`isFieldVisible`);
+  campo oculto não é exigido nem normalizado.
+- 12 `product_services` (grupos 1–4, `kit_code` `ZAPSIGN_CONTRATO_01`..`12`), todos
+  `active = false` e `total_cents = 100000` provisório.
+- 1 `payment_plans` provisório por serviço (`À vista no Pix (configurar)`, 100000 com sinal de
+  10000, `active = false`).
+- 24 `contract_templates` placeholder: contrato + procuração por serviço
+  (`PREENCHER_CONTRATO_01`..`12`, `PREENCHER_PROCURACAO_01`..`12`), `DRAFT`, sem `approved_at`.
+  `required_variables` variam com o objeto (`banco_instituicao_financeira`,
+  `ente_federativo_e_lei_aplicavel` ou nada no serviço 06) e com o modo de êxito.
+- 24 `kit_items` (2 por serviço, `service_id` preenchido; sort 10 = contrato, 20 = procuração).
+
 ## Decisões e desvios do spec
 
 1. **`clients` + `clients_safe`** — o spec pedia RLS restringindo CPF a quatro papéis; como RLS não
@@ -280,6 +317,13 @@ const { data } = await supabase.rpc('consume_rate_limit', {
    `process_events` à publicação `supabase_realtime` — a RLS já limita o que cada admin vê.
 9. **`anon` sem grants** e `ALTER DEFAULT PRIVILEGES` removendo o grant automático do Supabase para
    tabelas/sequences/funções novas: qualquer acesso público novo precisa ser explícito.
+10. **Kit por serviço** — `kit_items.service_id` nulo mantém o kit v1 compartilhado pela versão;
+    com `service_id`, cada serviço assina só o próprio contrato e procuração
+    (`ensureSignatureRows` filtra por `selected_service_id`). `product_services` ganhou objeto e
+    modo de êxito para que o mesmo schema sirva aos 12 serviços sem duplicar formulário.
+11. **Campo condicional no servidor** — `visibleWhen.objectType` é avaliado por
+    `isFieldVisible`; sem contexto (serviço ainda não escolhido) o campo fica oculto, então
+    `validateStep`/`normalizeStepValues` não exigem nem gravam o objeto antes da hora.
 
 ## Validação executada (local)
 

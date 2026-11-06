@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Controller, useForm, useWatch, type UseFormReturn } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
-import type { FormField, FormStep } from '@/features/process-core'
+import type { FormField, FormStep, ServiceObjectType } from '@/features/process-core'
 import { formatCpf } from '@/shared/utils/cpf'
 import { formatPhone } from '@/shared/utils/phone'
 import { formatCep } from '@/shared/utils/cep'
@@ -15,11 +15,12 @@ import { Button } from '@/shared/ui/Button'
 import { Alert } from '@/shared/ui/Alert'
 import { ErrorSummary } from '@/shared/ui/ErrorSummary'
 import { buildStepSchema } from '../services/buildStepSchema'
-import { getFieldError, pickStepValues } from '../utils/formUtils'
+import { getFieldError, isFieldVisible, pickStepValues } from '../utils/formUtils'
 
 interface StepFormProps {
   step: FormStep
   draft: Record<string, unknown>
+  objectType?: ServiceObjectType
   onNext: (values: Record<string, unknown>) => void
   onDraftChange: (values: Record<string, unknown>) => void
   onBack: () => void
@@ -34,6 +35,7 @@ interface StepFormProps {
 export function StepForm({
   step,
   draft,
+  objectType,
   onNext,
   onDraftChange,
   onBack,
@@ -44,7 +46,14 @@ export function StepForm({
   submitLabel = 'Continuar',
   submitDisabled = false,
 }: StepFormProps) {
-  const schema = useMemo(() => buildStepSchema(step), [step])
+  const visibleFields = useMemo(
+    () => step.fields.filter((field) => isFieldVisible(field, { objectType })),
+    [step, objectType],
+  )
+  const schema = useMemo(
+    () => buildStepSchema(step, { objectType }),
+    [step, objectType],
+  )
   const defaultValues = useMemo(() => pickStepValues(step, draft), [step, draft])
 
   const form = useForm<Record<string, unknown>>({
@@ -73,7 +82,7 @@ export function StepForm({
   }, [watchedValues])
 
   const summaryErrors = showSummary
-    ? step.fields.flatMap((field) => {
+    ? visibleFields.flatMap((field) => {
         const message = getFieldError(form.formState.errors, field.name)
         if (!message) return []
         return [
@@ -104,7 +113,7 @@ export function StepForm({
       <ErrorSummary ref={summaryRef} errors={summaryErrors} />
 
       <div className="grid gap-5 sm:grid-cols-2">
-        {step.fields.map((field) => (
+        {visibleFields.map((field) => (
           <div key={field.name} className={field.colSpan === 2 ? 'sm:col-span-2' : undefined}>
             <FieldRenderer field={field} form={form} stepId={step.id} />
           </div>

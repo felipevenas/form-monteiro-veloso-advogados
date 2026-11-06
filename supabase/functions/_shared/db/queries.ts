@@ -230,7 +230,7 @@ export async function loadHolidays(supabase: SupabaseClient): Promise<Set<string
     return new Set()
   }
 
-  return new Set((data ?? []).map((row) => String(row.date)))
+  return new Set((data ?? []).map((row: { date: string }) => String(row.date)))
 }
 
 export async function findProcessIdByPublicCode(

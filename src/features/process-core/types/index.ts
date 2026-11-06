@@ -51,6 +51,13 @@ export type WizardStepId =
 
 export type PaymentMethod = 'PIX' | 'BOLETO' | 'CARD'
 
+export type ServiceObjectType = 'BANK' | 'PUBLIC_ENTITY' | 'NONE'
+
+export type ServiceSuccessMode =
+  | 'REDUCAO'
+  | 'CLAUSULA_BRANCA'
+  | 'CLAUSULA_ADMINISTRATIVA'
+
 export type DueDateRule =
   | { type: 'LAST_DAY_OF_MONTH' }
   | { type: 'FIRST_BUSINESS_DAY' }
@@ -93,6 +100,10 @@ export interface FormFieldOption {
   label: string
 }
 
+export interface FormFieldVisibility {
+  objectType?: ServiceObjectType | ServiceObjectType[]
+}
+
 export interface FormField {
   name: string
   label: string
@@ -104,6 +115,7 @@ export interface FormField {
   maxLength?: number
   options?: FormFieldOption[]
   defaultValue?: string
+  visibleWhen?: FormFieldVisibility
   /** 2 = ocupa a linha inteira no desktop. */
   colSpan?: 1 | 2
 }
@@ -121,6 +133,11 @@ export interface ProductService {
   name: string
   description: string
   totalCents: number
+  groupNumber: number
+  objectType: ServiceObjectType
+  successMode: ServiceSuccessMode
+  kitCode: string
+  requiresVehicleData: boolean
 }
 
 export interface ProductSnapshot {
@@ -238,6 +255,7 @@ export interface ContractProcess {
   paymentStatus: PaymentStatus
   documentsStatus: DocumentsStatus
   financial: FinancialSnapshot | null
+  selectedServiceId: string | null
   selectedPlanId: string | null
   currentStep: WizardStepId
   completedSteps: WizardStepId[]

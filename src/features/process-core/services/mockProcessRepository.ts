@@ -15,7 +15,7 @@ import type {
   SignatureStatus,
   WizardStepId,
 } from '../types'
-import { areDocumentsUnlocked } from '../domain/workflow'
+import { areDocumentsUnlocked, isProcessFrozen } from '../domain/workflow'
 import { ApiError } from './apiError'
 import type { ProcessRepository } from '../types'
 import {
@@ -28,6 +28,16 @@ const STORAGE_PREFIX = 'mv:mock:process:'
 
 export interface MockProcessRepository extends ProcessRepository {
   simulate(token: string, event: 'sign' | 'pay'): Promise<ContractProcess>
+}
+
+function assertEditable(process: ContractProcess): void {
+  if (isProcessFrozen(process)) {
+    throw new ApiError(
+      'PROCESS_FROZEN',
+      'Este processo já foi enviado para assinatura e não pode mais ser alterado pelo formulário.',
+      409,
+    )
+  }
 }
 
 export function createMockProcessRepository(): MockProcessRepository {
@@ -48,6 +58,7 @@ export function createMockProcessRepository(): MockProcessRepository {
         paymentStatus: 'NAO_CRIADO',
         documentsStatus: 'NAO_INICIADA',
         financial: null,
+        selectedServiceId: null,
         selectedPlanId: null,
         currentStep: 'dados',
         completedSteps: [],
@@ -75,12 +86,42 @@ export function createMockProcessRepository(): MockProcessRepository {
 
     async saveStep(token, step, values) {
       const process = load(token)
-      const client = mergeDeep(process.client, values) as Partial<ClientData>
+      assertEditable(process)
+      let stepValues = values
+      let selectedServiceId = process.selectedServiceId
+
+      if (step === 'contrato') {
+        const serviceCode = String(values.produto ?? '').trim()
+        if (!serviceCode) {
+          throw new ApiError(
+            'SERVICE_REQUIRED',
+            'Escolha o serviço contratado.',
+            422,
+          )
+        }
+
+        const service = process.product.services.find((item) => item.code === serviceCode)
+        if (!service) {
+          throw new ApiError(
+            'SERVICE_NOT_FOUND',
+            'Serviço inválido para este produto.',
+            422,
+          )
+        }
+
+        const { produto: _produto, ...rest } = values
+        void _produto
+        stepValues = rest
+        selectedServiceId = service.id
+      }
+
+      const client = mergeDeep(process.client, stepValues) as Partial<ClientData>
       const completedSteps = addUnique(process.completedSteps, step)
       const currentStep = nextStepAfter(step, process.currentStep)
 
       const updated = touch(process, {
         client,
+        selectedServiceId,
         completedSteps,
         currentStep,
         generalStatus: process.generalStatus === 'DADOS_PENDENTES' ? 'DADOS_PENDENTES' : process.generalStatus,
@@ -96,19 +137,70 @@ export function createMockProcessRepository(): MockProcessRepository {
 
     async saveDraft(token, step, values) {
       const process = load(token)
-      void step
-      const client = mergeDeep(process.client, values) as Partial<ClientData>
-      const updated = touch(process, { client })
+      assertEditable(process)
+
+      if (step !== 'dados' && step !== 'contrato') {
+        throw new ApiError(
+          'INVALID_STEP',
+          'Esta etapa não aceita rascunho pelo formulário.',
+          422,
+        )
+      }
+
+      let stepValues = values
+      let selectedServiceId = process.selectedServiceId
+
+      if (step === 'contrato') {
+        const serviceCode = String(values.produto ?? '').trim()
+        if (!serviceCode) {
+          throw new ApiError('SERVICE_REQUIRED', 'Escolha o serviço contratado.', 422)
+        }
+
+        const service = process.product.services.find((item) => item.code === serviceCode)
+        if (!service) {
+          throw new ApiError('SERVICE_NOT_FOUND', 'Serviço inválido para este produto.', 422)
+        }
+
+        const { produto: _produto, ...rest } = values
+        void _produto
+        stepValues = rest
+        selectedServiceId = service.id
+      }
+
+      const client = mergeDeep(process.client, stepValues) as Partial<ClientData>
+      const updated = touch(process, { client, selectedServiceId })
       save(token, updated)
       return { savedAt: updated.updatedAt }
     },
 
     async savePlan(token, planId) {
       const process = load(token)
+      assertEditable(process)
+
       const plan = process.product.paymentPlans.find((item) => item.id === planId)
 
       if (!plan) {
         throw new ApiError('PLAN_NOT_FOUND', 'Escolha uma forma de pagamento válida.', 422)
+      }
+
+      if (!process.completedSteps.includes('contrato')) {
+        throw new ApiError(
+          'CONTRACT_STEP_REQUIRED',
+          'Salve os dados do contrato antes de escolher o plano.',
+          422,
+        )
+      }
+
+      if (!process.selectedServiceId) {
+        throw new ApiError('SERVICE_REQUIRED', 'Escolha o serviço contratado.', 422)
+      }
+
+      if (!plan.serviceId || plan.serviceId !== process.selectedServiceId) {
+        throw new ApiError(
+          'PLAN_SERVICE_MISMATCH',
+          'Escolha um plano do serviço selecionado.',
+          422,
+        )
       }
 
       const updated = touch(process, {
@@ -347,12 +439,7 @@ export function createMockProcessRepository(): MockProcessRepository {
 }
 
 function createSignatureSummary() {
-  const names = [
-    'Contrato de prestação de serviços',
-    'Procuração',
-    'Declaração de hipossuficiência',
-    'Declaração de residência',
-  ]
+  const names = ['Contrato de prestação de serviços', 'Procuração']
 
   const documents: SignatureDocumentState[] = names.map((name, index) => ({
     id: `doc-${index + 1}`,
@@ -374,6 +461,18 @@ function createPaymentSummary(financial: FinancialSnapshot) {
       number: 0,
       label: 'Sinal',
       amountCents: financial.signalCents,
+      dueDate: todayInSaoPaulo(),
+      status: 'PENDENTE',
+      invoiceUrl: 'mock:pay',
+    })
+  }
+
+  if (financial.entryCents > 0) {
+    charges.push({
+      id: crypto.randomUUID(),
+      number: 0,
+      label: 'Entrada',
+      amountCents: financial.entryCents,
       dueDate: todayInSaoPaulo(),
       status: 'PENDENTE',
       invoiceUrl: 'mock:pay',
@@ -402,6 +501,9 @@ function normalizeClient(client: Partial<ClientData>): Partial<ClientData> {
     cpf: client.cpf ? normalizeCpf(client.cpf) : client.cpf,
     email: client.email?.trim().toLowerCase(),
     phone: client.phone ? normalizePhone(client.phone) : client.phone,
+    maritalStatus: client.maritalStatus?.trim(),
+    profession: client.profession?.trim(),
+    nationality: client.nationality?.trim(),
     address: client.address
       ? {
           ...client.address,
@@ -412,13 +514,7 @@ function normalizeClient(client: Partial<ClientData>): Partial<ClientData> {
           neighborhood: client.address.neighborhood?.trim(),
         }
       : client.address,
-    extra: client.extra
-      ? {
-          ...client.extra,
-          vehicle_plate:
-            client.extra.vehicle_plate?.replace(/[\s-]/g, '').toUpperCase() ?? '',
-        }
-      : client.extra,
+    extra: client.extra ? { ...client.extra } : client.extra,
   }
 }
 

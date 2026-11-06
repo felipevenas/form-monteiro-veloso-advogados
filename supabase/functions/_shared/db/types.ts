@@ -34,6 +34,7 @@ export interface DbFormField {
   inputmode?: string
   consent_type?: string
   consent_version?: string
+  visibleWhen?: { objectType?: string | string[] }
 }
 
 export interface DbFormStep {
@@ -92,6 +93,11 @@ export interface DbProductService {
   total_cents: number
   active: boolean
   sort_order: number
+  group_number: number
+  object_type: string
+  success_mode: string
+  kit_code: string | null
+  requires_vehicle_data: boolean
 }
 
 export interface DbDocumentRequirement {
@@ -123,6 +129,7 @@ export interface DbProcess {
   unlock_condition: string
   attribution: Record<string, string>
   selected_plan_id: string | null
+  selected_service_id: string | null
   automation_paused_at: string | null
   version: number
   started_at: string
@@ -138,6 +145,9 @@ export interface DbClient {
   email: string | null
   phone_e164: string | null
   address: Record<string, unknown>
+  marital_status: string | null
+  profession: string | null
+  nationality: string | null
 }
 
 export interface DbTemplate {
@@ -153,6 +163,7 @@ export interface DbKitItem {
   id: string
   product_version_id: string
   contract_template_id: string
+  service_id: string | null
   sort_order: number
   required: boolean
   signer_role: string

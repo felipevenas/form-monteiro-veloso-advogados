@@ -104,6 +104,17 @@ export interface FormFieldOption {
   label: string
 }
 
+/** Objeto do contrato. Define campos visíveis e variáveis do template. */
+export type ServiceObjectType = 'BANK' | 'PUBLIC_ENTITY' | 'NONE'
+
+/** Cláusula de êxito aplicável ao serviço contratado. */
+export type ServiceSuccessMode = 'REDUCAO' | 'CLAUSULA_BRANCA' | 'CLAUSULA_ADMINISTRATIVA'
+
+/** Condição declarativa de exibição de um campo (hoje, o objeto do serviço). */
+export interface FormFieldVisibility {
+  objectType?: ServiceObjectType | ServiceObjectType[]
+}
+
 export interface FormField {
   name: string
   label: string
@@ -116,6 +127,7 @@ export interface FormField {
   options?: FormFieldOption[]
   defaultValue?: string
   colSpan?: 1 | 2
+  visibleWhen?: FormFieldVisibility
 }
 
 export interface FormStep {
@@ -131,6 +143,12 @@ export interface ProductService {
   name: string
   description: string
   totalCents: number
+  groupNumber: number
+  objectType: ServiceObjectType
+  successMode: ServiceSuccessMode
+  /** Código lógico do kit documental; '' quando não configurado. */
+  kitCode: string
+  requiresVehicleData: boolean
 }
 
 export interface PaymentPlan {
@@ -249,6 +267,7 @@ export interface ContractProcess {
   documentsStatus: DocumentsStatus
   financial: FinancialSnapshot | null
   selectedPlanId: string | null
+  selectedServiceId: string | null
   currentStep: WizardStepId
   completedSteps: WizardStepId[]
   signature: SignatureSummary | null
