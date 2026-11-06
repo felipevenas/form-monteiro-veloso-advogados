@@ -227,6 +227,7 @@ export async function processZapSignEvent(
       current_step: 'assinatura',
     })
     .eq('id', processId)
+    .neq('signature_status', 'ASSINADA_COMPLETA')
 
   await recordEvent(supabase, processId, {
     type: 'SIGNATURE_PARTIAL',

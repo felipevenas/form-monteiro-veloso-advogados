@@ -123,6 +123,7 @@ export async function requestInternalSignatures(
       current_step: 'assinatura',
     })
     .eq('id', processId)
+    .neq('signature_status', 'ASSINADA_COMPLETA')
 
   await recordEvent(supabase, processId, {
     type: 'INTERNAL_SIGNATURE_REQUESTED',
