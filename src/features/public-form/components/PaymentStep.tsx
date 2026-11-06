@@ -9,9 +9,10 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import type { ContractProcess } from '@/features/process-core'
-import { processRepository } from '@/features/process-core'
+import { areDocumentsUnlocked, processRepository } from '@/features/process-core'
 import { formatBRL } from '@/shared/utils/money'
 import { formatDateBr } from '@/shared/utils/dates'
+import { describeDueDateRule } from '@/shared/utils/dueDate'
 import { Alert } from '@/shared/ui/Alert'
 import { Button, LinkButton } from '@/shared/ui/Button'
 import { cn } from '@/shared/lib/cn'
@@ -44,8 +45,9 @@ export function PaymentStep({
   )
   const service = process.product.services.find((item) => item.id === plan?.serviceId)
   const paid = process.paymentStatus === 'PAGO'
+  const released = areDocumentsUnlocked(process)
   const checkoutUrl = process.payment?.checkoutUrl ?? null
-  const canSimulate = Boolean(processRepository.simulate) && !paid
+  const canSimulate = Boolean(processRepository.simulate) && !released
 
   async function handleCheckout() {
     setError(null)
@@ -83,17 +85,17 @@ export function PaymentStep({
       <div
         className={cn(
           'flex items-start gap-3 border p-4',
-          paid ? 'border-success/40 bg-success-soft/40' : 'border-border bg-paper-alt/40',
+          released ? 'border-success/40 bg-success-soft/40' : 'border-border bg-paper-alt/40',
         )}
       >
         <span
           className={cn(
             'grid size-9 shrink-0 place-items-center rounded-full',
-            paid ? 'bg-success-soft text-success' : 'bg-blue-50 text-brand',
+            released ? 'bg-success-soft text-success' : 'bg-blue-50 text-brand',
           )}
           aria-hidden="true"
         >
-          {paid ? (
+          {released ? (
             <CheckCircle2 className="size-4" />
           ) : redirecting ? (
             <Loader2 className="size-4 animate-spin" />
@@ -105,16 +107,20 @@ export function PaymentStep({
           <p className="text-[0.9rem] font-bold text-ink" role="status" aria-live="polite">
             {paid
               ? 'Pagamento confirmado'
-              : returnedFromCheckout
-                ? 'Confirmando seu pagamento…'
-                : 'Pagamento pendente'}
+              : released
+                ? 'Sinal/entrada confirmado'
+                : returnedFromCheckout
+                  ? 'Confirmando seu pagamento…'
+                  : 'Pagamento pendente'}
           </p>
           <p className="text-[0.8rem] leading-relaxed text-text-2">
             {paid
-              ? 'A próxima etapa é o envio dos documentos.'
-              : returnedFromCheckout
-                ? 'O Asaas ainda está processando. Esta página atualiza sozinha em alguns segundos.'
-                : 'Você será levado ao checkout seguro do Asaas. Após pagar, o botão de concluir traz você de volta ao formulário.'}
+              ? 'Todas as cobranças foram pagas. A próxima etapa é o envio dos documentos.'
+              : released
+                ? 'O sinal/entrada foi confirmado. As parcelas restantes já estão disponíveis no Asaas e os documentos foram liberados.'
+                : returnedFromCheckout
+                  ? 'O Asaas ainda está processando. Esta página atualiza sozinha em alguns segundos.'
+                  : 'Você será levado à cobrança segura do Asaas. O pagamento do sinal/entrada libera os documentos; as parcelas restantes são criadas depois.'}
           </p>
         </div>
       </div>
@@ -138,6 +144,12 @@ export function PaymentStep({
             <div className="flex items-center justify-between gap-3 px-4 py-3">
               <dt className="text-text-2">Valor total</dt>
               <dd className="font-display text-xl text-ink">{formatBRL(plan.totalCents)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
+              <dt className="text-text-2">Vencimento</dt>
+              <dd className="text-right font-semibold text-ink">
+                {describeDueDateRule(plan.dueDateRule)}
+              </dd>
             </div>
             {plan.signalCents > 0 ? (
               <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -168,7 +180,7 @@ export function PaymentStep({
         </section>
       ) : null}
 
-      {returnedFromCheckout && !paid ? (
+      {returnedFromCheckout && !released ? (
         <Alert tone="info" title="Aguardando confirmação">
           <p>
             A confirmação vem direto do Asaas. Não feche esta página; ela é atualizada
@@ -206,17 +218,17 @@ export function PaymentStep({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          {!paid && checkoutUrl && !checkoutUrl.startsWith('mock:') ? (
+          {!released && checkoutUrl && !checkoutUrl.startsWith('mock:') ? (
             <LinkButton
               href={checkoutUrl}
               variant="outline"
               leftIcon={<ExternalLink className="size-4" />}
             >
-              Abrir checkout
+              Abrir cobrança
             </LinkButton>
           ) : null}
 
-          {paid ? (
+          {released ? (
             <Button onClick={onContinue} rightIcon={<ArrowRight className="size-4" />}>
               Prosseguir para documentos
             </Button>
@@ -226,7 +238,7 @@ export function PaymentStep({
               loading={redirecting}
               rightIcon={<ExternalLink className="size-4" />}
             >
-              Ir para o checkout do Asaas
+              Abrir cobrança do sinal
             </Button>
           )}
         </div>

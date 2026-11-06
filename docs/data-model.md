@@ -107,13 +107,16 @@ processo (form_data, status por trilha, snapshot financeiro)
   `active`, `sort_order`). Desde o formulário v2 cada serviço carrega `group_number` (1–4),
   `object_type` (`BANK` | `PUBLIC_ENTITY` | `NONE`), `success_mode`
   (`REDUCAO` | `CLAUSULA_BRANCA` | `CLAUSULA_ADMINISTRATIVA`), `kit_code` (código lógico do kit,
-  ex. `ZAPSIGN_CONTRATO_01`) e `requires_vehicle_data`.
+  ex. `ZAPSIGN_CONTRATO_01`) e `requires_vehicle_data`. A configuração de êxito fica no próprio
+  serviço (`success_percent`, `success_months`, `success_conditions`, `success_clause`) e é
+  definida pela equipe, nunca pelo cliente.
 - **kit_items** — quais templates compõem a assinatura de cada versão, com `sort_order` e `signer_role`.
   `service_id` nulo = documento compartilhado por toda a versão (kit v1, 4 documentos). Com
   `service_id`, o item só entra no processo daquele serviço (kit v2: contrato + procuração).
 - **document_requirements** — requisitos de upload por versão (`code` único na versão), MIME aceitos e tamanho máximo.
 - **payment_plans** — planos por versão (opcionalmente por `service_id`). `due_date_rule` no mesmo
-  formato do frontend (`{"type":"FIXED_DAY","day":10}`, `LAST_DAY_OF_MONTH`, `FIRST_BUSINESS_DAY`, `LAST_BUSINESS_DAY`).
+  formato do frontend (`{"type":"FIXED_DAY","day":10}`, `LAST_DAY_OF_MONTH`, `FIRST_BUSINESS_DAY`,
+  `LAST_BUSINESS_DAY`) e `discount_percent` para a cláusula de quitação antecipada (0 = em branco).
 - **holidays** — feriados usados no cálculo de dias úteis (`scope`: NATIONAL/STATE/CITY).
 
 ### Cliente e processo
@@ -141,7 +144,9 @@ processo (form_data, status por trilha, snapshot financeiro)
 ### Assinatura, pagamento e documentos
 
 - **signatures** — um documento por linha (`external_document_id` do ZapSign), `status`,
-  `signature_url`, `signed_at`, `last_event_at`.
+  `signature_url`, `signed_at`, `last_event_at`. `external_signer_id` guarda o token do cliente e
+  `external_internal_signer_id` o da Dra. Roberta (assinatura em lote). O PDF final fica em
+  `signed_file_url` e, depois do arquivamento, em `drive_file_id`/`drive_folder_id`.
 - **payments** — uma cobrança por linha (`installment_number`, `amount_cents`, `due_date`, `status`),
   com `external_charge_id` único e URLs de fatura/boleto/PIX.
 - **documents** — metadados do arquivo (`original_filename`, `mime_type`, `size_bytes`, `sha256`,
@@ -255,6 +260,22 @@ const { data } = await supabase.rpc('consume_rate_limit', {
 })
 ```
 
+## Fluxo de assinatura e cobrança
+
+1. **Etapa 2 (contrato e pagamento):** a API cria apenas o cliente no Asaas
+   (`clients.external_asaas_customer_id`) e gera o kit do serviço no ZapSign. O cliente é o
+   primeiro signatário; a Dra. Roberta é adicionada como signatária interna.
+2. **Cliente assina (`doc_signed`):** quando todos os documentos têm a assinatura do cliente, a
+   Edge Function chama `POST /sign/` do ZapSign com o `user_token` e os `signer_tokens` da
+   advogada. O processo fica em `AGUARDANDO_ASSINATURA_INTERNA`.
+3. **Advogada assina:** o PDF final é copiado para o Storage privado e para o Google Drive. Só
+   então a cobrança de **sinal/entrada** é criada no Asaas (`POST /payments`).
+4. **Sinal/entrada pago:** o webhook do Asaas marca somente a cobrança correspondente como paga,
+   cria as **parcelas restantes** e libera a etapa de documentos.
+
+O `financial_snapshot` continua sendo a fonte dos valores; `payments.payment_type` distingue
+`SIGNAL`, `ENTRY` e `INSTALLMENT`. Nenhum evento marca todas as cobranças como pagas.
+
 ## Seed do produto piloto
 
 - Produto `defesa-busca-apreensao` — "Defesa em Busca e Apreensão", versão 1 `APPROVED`,
@@ -262,7 +283,8 @@ const { data } = await supabase.rpc('consume_rate_limit', {
 - `form_schema` com 5 passos: `dados`, `contrato`, `assinatura`, `pagamento`, `documentos`.
   `dados` usa os nomes de campo (`nome_completo`, `cpf`, `email`, `telefone`, `estado_civil`,
   `profissao`, `nacionalidade`, `cep`, `logradouro`, `numero`, `complemento`, `bairro`, `cidade`, `uf`);
-  `contrato` usa `placa_veiculo`, `modelo_veiculo`, `instituicao_financeira`, `numero_contrato`.
+  `contrato` usa `banco_instituicao_financeira` e `numero_contrato`. Os campos de veículo foram
+  removidos: os contratos da esteira não usam placa/modelo.
   O plano é escolhido na mesma tela de `contrato`, a partir de `payment_plans` da versão.
   `assinatura`, `pagamento` e `documentos` são checkpoints sem campos, controlados por status/webhook.
 - 4 templates (`PREENCHER_CONTRATO`, `PREENCHER_PROCURACAO`, `PREENCHER_DECLARACAO_HIPOSSUFICIENCIA`,
@@ -288,9 +310,11 @@ const { data } = await supabase.rpc('consume_rate_limit', {
   `descricao_adicional_do_objeto`. `visibleWhen` é resolvido no servidor (`isFieldVisible`);
   campo oculto não é exigido nem normalizado.
 - 12 `product_services` (grupos 1–4, `kit_code` `ZAPSIGN_CONTRATO_01`..`12`), todos
-  `active = false` e `total_cents = 100000` provisório.
+  `active = false` e `total_cents = 100000` provisório. O êxito da redução já nasce com 30%
+  (`success_percent`); meses/condições e a cláusula administrativa ficam para a equipe.
 - 1 `payment_plans` provisório por serviço (`À vista no Pix (configurar)`, 100000 com sinal de
-  10000, `active = false`).
+  10000, `active = false`). O `seed.sql` ativa a v2 apenas no ambiente local e varia as quatro
+  regras de vencimento para teste; **produção permanece DRAFT/inativa** até a definição dos valores.
 - 24 `contract_templates` placeholder: contrato + procuração por serviço
   (`PREENCHER_CONTRATO_01`..`12`, `PREENCHER_PROCURACAO_01`..`12`), `DRAFT`, sem `approved_at`.
   `required_variables` variam com o objeto (`banco_instituicao_financeira`,

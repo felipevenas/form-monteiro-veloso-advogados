@@ -37,8 +37,13 @@ O fluxo já chama os provedores e processa os webhooks, mas produção fica em
 ### ZapSign
 
 - Secrets: `ZAPSIGN_API_TOKEN` e, se necessário, `ZAPSIGN_BASE_URL`.
-- Atualizar `contract_templates.external_template_id` dos 4 templates (hoje `PREENCHER_*`)
-  e marcar `approval_status = APPROVED` com `approved_at`.
+- Assinatura interna: `ZAPSIGN_INTERNAL_USER_TOKEN` (token pessoal da Dra. Roberta),
+  `ZAPSIGN_INTERNAL_SIGNER_NAME`, `ZAPSIGN_INTERNAL_SIGNER_EMAIL`,
+  `ZAPSIGN_INTERNAL_SIGNER_CPF`, `ZAPSIGN_INTERNAL_SIGNER_PHONE` e
+  `ZAPSIGN_INTERNAL_SIGNER_PHONE_COUNTRY`. O e-mail precisa ser de uma usuária da conta
+  ZapSign e o plano precisa do add-on de assinatura em lote.
+- Atualizar `contract_templates.external_template_id` dos 24 templates da v2 (hoje
+  `PREENCHER_*`) e marcar `approval_status = APPROVED` com `approved_at`.
 - Webhook: `https://lsmfqcqocrwgtfttcliq.supabase.co/functions/v1/webhooks/zapsign`
   com `Authorization: Bearer <ZAPSIGN_WEBHOOK_SECRET>`.
 - O envio automático usa `send_automatic_whatsapp: true`; confirmar que o plano do ZapSign
@@ -50,10 +55,17 @@ O fluxo já chama os provedores e processa os webhooks, mas produção fica em
   `https://api-sandbox.asaas.com/v3` em sandbox).
 - Webhook: `https://lsmfqcqocrwgtfttcliq.supabase.co/functions/v1/webhooks/asaas`
   com `authToken` igual a `ASAAS_WEBHOOK_TOKEN` (header `asaas-access-token`).
-- Eventos: `CHECKOUT_CREATED`, `CHECKOUT_PAID`, `CHECKOUT_CANCELED`, `CHECKOUT_EXPIRED`
-  e os eventos de cobrança necessários.
-- O retorno do checkout usa `APP_URL` + `/processo/:token?pagamento=retorno`; a confirmação
-  sempre vem do webhook, nunca do redirect.
+- Eventos: `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`, `PAYMENT_RECEIVED_IN_CASH`,
+  `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`, `PAYMENT_DELETED` e os eventos de checkout legados.
+- Ordem: cliente no Asaas na etapa 2; sinal/entrada só após a assinatura completa; parcelas
+  restantes quando o sinal/entrada é pago. A confirmação sempre vem do webhook, nunca do redirect.
+
+### Google Drive
+
+- `GOOGLE_SERVICE_ACCOUNT_JSON` (JSON da service account ou base64) e
+  `GOOGLE_DRIVE_ROOT_FOLDER_ID` (pasta do Drive Compartilhado).
+- A service account precisa de acesso de editor à pasta raiz. O PDF assinado é copiado para o
+  Storage privado e, quando o Drive está configurado, para uma subpasta com o `public_code`.
 
 ## E-mails transacionais (Resend)
 
@@ -113,9 +125,12 @@ vercel domains verify form.monteiroveloso.com --scope felipevenas-projects
 
 Ainda faltam, quando as integrações forem habilitadas:
 
-- `ASAAS_API_KEY`, `ASAAS_WEBHOOK_TOKEN`
-- `ZAPSIGN_API_TOKEN`, `ZAPSIGN_WEBHOOK_SECRET`
-- `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHARED_DRIVE_ID`, `GOOGLE_ROOT_FOLDER_ID`
+- `ASAAS_API_KEY`, `ASAAS_BASE_URL`, `ASAAS_WEBHOOK_TOKEN`
+- `ZAPSIGN_API_TOKEN`, `ZAPSIGN_WEBHOOK_SECRET`, `ZAPSIGN_INTERNAL_USER_TOKEN`,
+  `ZAPSIGN_INTERNAL_SIGNER_NAME`, `ZAPSIGN_INTERNAL_SIGNER_EMAIL`,
+  `ZAPSIGN_INTERNAL_SIGNER_CPF`, `ZAPSIGN_INTERNAL_SIGNER_PHONE`,
+  `ZAPSIGN_INTERNAL_SIGNER_PHONE_COUNTRY`
+- `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`
 - `INFINITUM_*`, `VERTISEL_*`
 - `CRON_SECRET`
 
@@ -137,7 +152,9 @@ Se o convite não chegar, verificar spam ou reenviar pelo dashboard do Supabase 
 Ao republicar, preserve as flags: `npx supabase functions deploy api-public --no-verify-jwt`
 e `npx supabase functions deploy webhooks --no-verify-jwt`.
 
-O worker `jobs` ainda não existe. Submits criam `GENERATE_CONTRACT` e `CREATE_PAYMENTS` em `PENDING`; portanto, **não há geração de contrato nem cobrança automática** até a Fase 2/3.
+O worker `jobs` ainda não existe. A geração do contrato e a cobrança inicial são feitas
+sincronamente pelo `webhooks`/`api-public` (com idempotência); jobs pendentes continuam
+servindo de fallback para reenvio manual.
 
 ## Deploy do frontend
 

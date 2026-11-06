@@ -15,16 +15,16 @@ export function areDocumentsUnlocked(process: {
   paymentStatus: PaymentStatus
   unlockCondition: string
   financialSignalCents: number
+  financialEntryCents: number
 }): boolean {
   if (process.generalStatus === 'CANCELADO') return false
   if (!process.completedSteps.includes('pagamento')) return false
 
-  const signatureComplete =
-    process.signatureStatus === 'ASSINADA_CLIENTE' ||
-    process.signatureStatus === 'ASSINADA_COMPLETA'
+  const signatureComplete = process.signatureStatus === 'ASSINADA_COMPLETA'
   const paymentSatisfied =
     process.paymentStatus === 'PAGO' ||
-    (process.paymentStatus === 'PARCIAL' && process.financialSignalCents > 0)
+    (process.paymentStatus === 'PARCIAL' &&
+      process.financialSignalCents + process.financialEntryCents > 0)
 
   switch (process.unlockCondition) {
     case 'IMMEDIATE':
@@ -48,6 +48,7 @@ export function areDocumentsUnlockedForDto(process: ContractProcess): boolean {
     paymentStatus: process.paymentStatus,
     unlockCondition: process.product.unlockCondition,
     financialSignalCents: process.financial?.signalCents ?? 0,
+    financialEntryCents: process.financial?.entryCents ?? 0,
   })
 }
 

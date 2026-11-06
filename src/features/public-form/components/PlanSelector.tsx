@@ -4,6 +4,7 @@ import type { PaymentPlan } from '@/features/process-core'
 import { buildSnapshotFromPlan } from '@/features/process-core'
 import { formatBRL } from '@/shared/utils/money'
 import { formatDateBr, todayInSaoPaulo } from '@/shared/utils/dates'
+import { describeDueDateRule } from '@/shared/utils/dueDate'
 import { cn } from '@/shared/lib/cn'
 
 interface PlanSelectorProps {
@@ -90,6 +91,9 @@ export function PlanSelector({ plans, planId, onChange }: PlanSelectorProps) {
             <CalendarDays className="size-4 text-brand" aria-hidden="true" />
             <p className="label-caps text-field">Agenda prevista</p>
           </div>
+          <p className="mt-1 text-[0.74rem] text-text-2">
+            Vencimento: {describeDueDateRule(selected.plan.dueDateRule)}
+          </p>
 
           <ul className="mt-2 divide-y divide-border text-[0.8rem]">
             {selected.result.value.signalCents > 0 ? (

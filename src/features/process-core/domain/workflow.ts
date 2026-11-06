@@ -36,12 +36,12 @@ export function areDocumentsUnlocked(process: ContractProcess): boolean {
   if (process.generalStatus === 'CANCELADO') return false
   if (!process.completedSteps.includes('pagamento')) return false
 
-  const signatureComplete =
-    process.signatureStatus === 'ASSINADA_CLIENTE' ||
-    process.signatureStatus === 'ASSINADA_COMPLETA'
+  const signatureComplete = process.signatureStatus === 'ASSINADA_COMPLETA'
+  const upfrontCents =
+    (process.financial?.signalCents ?? 0) + (process.financial?.entryCents ?? 0)
   const paymentSatisfied =
     process.paymentStatus === 'PAGO' ||
-    (process.paymentStatus === 'PARCIAL' && (process.financial?.signalCents ?? 0) > 0)
+    (process.paymentStatus === 'PARCIAL' && upfrontCents > 0)
 
   switch (process.product.unlockCondition) {
     case 'IMMEDIATE':
@@ -168,9 +168,17 @@ export function deriveNextAction(process: ContractProcess): NextAction {
     }
   }
 
-  const clientSigned =
-    process.signatureStatus === 'ASSINADA_CLIENTE' ||
-    process.signatureStatus === 'ASSINADA_COMPLETA'
+  if (process.signatureStatus === 'ASSINADA_CLIENTE') {
+    return {
+      kind: 'WAIT',
+      title: 'Aguardando a assinatura da advogada',
+      description:
+        'Você já assinou. A Dra. Roberta assina em seguida e o pagamento é liberado automaticamente.',
+      cta: null,
+    }
+  }
+
+  const clientSigned = process.signatureStatus === 'ASSINADA_COMPLETA'
 
   if (!clientSigned) {
     const hasLink = process.signature?.documents.some((document) => document.signUrl)

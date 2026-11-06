@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import type { ContractProcess, FormStep } from '@/features/process-core'
-import { isProcessFrozen, processRepository } from '@/features/process-core'
+import { areDocumentsUnlocked, isProcessFrozen, processRepository } from '@/features/process-core'
 import { formatTimeBr } from '@/shared/utils/dates'
 import { mergeDeep } from '@/shared/lib/merge'
 import { Alert } from '@/shared/ui/Alert'
@@ -312,17 +312,11 @@ function resolveStepIndex(process: ContractProcess, steps: FormStep[]): number {
     return indexOfStep(steps, 'contrato')
   }
 
-  if (
-    process.documentsStatus === 'COMPLETA' ||
-    process.paymentStatus === 'PAGO'
-  ) {
+  if (areDocumentsUnlocked(process) || process.documentsStatus === 'COMPLETA') {
     return indexOfStep(steps, 'documentos')
   }
 
-  if (
-    process.signatureStatus === 'ASSINADA_CLIENTE' ||
-    process.signatureStatus === 'ASSINADA_COMPLETA'
-  ) {
+  if (process.signatureStatus === 'ASSINADA_COMPLETA') {
     return indexOfStep(steps, 'pagamento')
   }
 

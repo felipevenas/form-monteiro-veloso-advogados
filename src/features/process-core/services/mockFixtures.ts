@@ -1,6 +1,7 @@
 import type {
   DocumentRequirement,
   DocumentState,
+  DueDateRule,
   FormStep,
   PaymentPlan,
   ProductService,
@@ -375,7 +376,14 @@ export const pilotServices: ProductService[] = serviceSeeds.map((seed) => ({
   requiresVehicleData: false,
 }))
 
-const avistaPlans: PaymentPlan[] = pilotServices.map((service) => {
+const dueDateRules: DueDateRule[] = [
+  { type: 'FIXED_DAY', day: 10 },
+  { type: 'LAST_DAY_OF_MONTH' },
+  { type: 'FIRST_BUSINESS_DAY' },
+  { type: 'LAST_BUSINESS_DAY' },
+]
+
+const avistaPlans: PaymentPlan[] = pilotServices.map((service, index) => {
   const signalCents = Math.round(service.totalCents / 10)
 
   return {
@@ -391,7 +399,7 @@ const avistaPlans: PaymentPlan[] = pilotServices.map((service) => {
     signalCents,
     entryCents: 0,
     installmentCount: 1,
-    dueDateRule: { type: 'FIXED_DAY', day: 10 },
+    dueDateRule: dueDateRules[index % dueDateRules.length] ?? dueDateRules[0]!,
   }
 })
 
@@ -416,6 +424,21 @@ export const pilotPaymentPlans: PaymentPlan[] = [
     entryCents: 0,
     installmentCount: revisionalVeiculoInstallments,
     dueDateRule: { type: 'FIXED_DAY', day: 10 },
+  },
+  {
+    id: 'srv-02-entrada-7x',
+    serviceId: 'srv-02',
+    label: 'Sinal + entrada + 7 parcelas',
+    description: `Sinal de ${formatBRL(35_000)}, entrada de ${formatBRL(
+      35_000,
+    )} e 7 parcelas de ${formatBRL(40_000)}.`,
+    method: 'PIX',
+    mode: 'PARCELADO',
+    totalCents: 350_000,
+    signalCents: 35_000,
+    entryCents: 35_000,
+    installmentCount: 7,
+    dueDateRule: { type: 'LAST_BUSINESS_DAY' },
   },
 ]
 

@@ -8,6 +8,172 @@
 
 const DEFAULT_BASE_URL = 'https://api.asaas.com/v3'
 
+function baseUrl(): string {
+  return Deno.env.get('ASAAS_BASE_URL') ?? DEFAULT_BASE_URL
+}
+
+function apiHeaders(apiKey: string): Record<string, string> {
+  return {
+    access_token: apiKey,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'User-Agent': 'MonteiroVelosoForm/1.0',
+  }
+}
+
+function apiKey(): string {
+  const key = Deno.env.get('ASAAS_API_KEY') ?? ''
+  if (!key) throw new Error('ASAAS_NOT_CONFIGURED')
+  return key
+}
+
+export interface AsaasCustomerInput {
+  name: string
+  cpfCnpj: string
+  email?: string | null
+  mobilePhone?: string | null
+  postalCode?: string | null
+  address?: string | null
+  addressNumber?: string | null
+  complement?: string | null
+  province?: string | null
+  externalReference?: string | null
+}
+
+export interface AsaasCustomerResult {
+  id: string
+}
+
+export async function findAsaasCustomerByCpf(
+  cpfCnpj: string,
+): Promise<AsaasCustomerResult | null> {
+  const key = apiKey()
+  const url = new URL(`${baseUrl()}/customers`)
+  url.searchParams.set('cpfCnpj', cpfCnpj.replace(/\D+/g, ''))
+  url.searchParams.set('limit', '1')
+
+  const response = await fetch(url, {
+    headers: apiHeaders(key),
+    signal: AbortSignal.timeout(20_000),
+  })
+  const payload = await readJson(response)
+
+  if (!response.ok) {
+    console.error('[asaas] falha ao buscar cliente:', response.status, safeMessage(payload))
+    throw new Error('ASAAS_REQUEST_FAILED')
+  }
+
+  const body = asObject(payload)
+  const rows = Array.isArray(body.data) ? body.data : []
+  const first = asObject(rows[0])
+  const id = stringValue(first.id)
+  return id ? { id } : null
+}
+
+export async function createAsaasCustomer(
+  input: AsaasCustomerInput,
+): Promise<AsaasCustomerResult> {
+  const key = apiKey()
+  const response = await fetch(`${baseUrl()}/customers`, {
+    method: 'POST',
+    headers: apiHeaders(key),
+    body: JSON.stringify({
+      name: input.name,
+      cpfCnpj: input.cpfCnpj.replace(/\D+/g, ''),
+      ...(input.email ? { email: input.email } : {}),
+      ...(input.mobilePhone ? { mobilePhone: input.mobilePhone } : {}),
+      ...(input.postalCode ? { postalCode: input.postalCode } : {}),
+      ...(input.address ? { address: input.address } : {}),
+      ...(input.addressNumber ? { addressNumber: input.addressNumber } : {}),
+      ...(input.complement ? { complement: input.complement } : {}),
+      ...(input.province ? { province: input.province } : {}),
+      ...(input.externalReference ? { externalReference: input.externalReference } : {}),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  })
+
+  const payload = await readJson(response)
+
+  if (!response.ok) {
+    console.error('[asaas] falha ao criar cliente:', response.status, safeMessage(payload))
+    throw new Error('ASAAS_REQUEST_FAILED')
+  }
+
+  const id = stringValue(asObject(payload).id)
+  if (!id) {
+    console.error('[asaas] resposta sem id do cliente')
+    throw new Error('ASAAS_INVALID_RESPONSE')
+  }
+
+  return { id }
+}
+
+export interface AsaasPaymentInput {
+  customerId: string
+  billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD' | 'UNDEFINED'
+  valueCents: number
+  dueDate: string
+  description: string
+  externalReference: string
+  installmentCount?: number
+  totalValueCents?: number
+}
+
+export interface AsaasPaymentResult {
+  id: string
+  status: string
+  invoiceUrl: string | null
+  dueDate: string | null
+  installmentId: string | null
+}
+
+export async function createAsaasPayment(
+  input: AsaasPaymentInput,
+): Promise<AsaasPaymentResult> {
+  const key = apiKey()
+  const response = await fetch(`${baseUrl()}/payments`, {
+    method: 'POST',
+    headers: apiHeaders(key),
+    body: JSON.stringify({
+      customer: input.customerId,
+      billingType: input.billingType,
+      value: input.valueCents / 100,
+      dueDate: input.dueDate,
+      description: input.description.slice(0, 500),
+      externalReference: input.externalReference,
+      ...(input.installmentCount && input.installmentCount > 1
+        ? {
+            installmentCount: input.installmentCount,
+            totalValue: (input.totalValueCents ?? input.valueCents) / 100,
+          }
+        : {}),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  })
+
+  const payload = await readJson(response)
+
+  if (!response.ok) {
+    console.error('[asaas] falha ao criar cobrança:', response.status, safeMessage(payload))
+    throw new Error('ASAAS_REQUEST_FAILED')
+  }
+
+  const body = asObject(payload)
+  const id = stringValue(body.id)
+  if (!id) {
+    console.error('[asaas] resposta sem id da cobrança')
+    throw new Error('ASAAS_INVALID_RESPONSE')
+  }
+
+  return {
+    id,
+    status: stringValue(body.status) ?? 'PENDING',
+    invoiceUrl: stringValue(body.invoiceUrl),
+    dueDate: stringValue(body.dueDate),
+    installmentId: stringValue(body.installment),
+  }
+}
+
 export interface AsaasCheckoutInput {
   billingType: 'PIX' | 'CREDIT_CARD'
   installmentCount: number
@@ -43,22 +209,14 @@ export function isAsaasConfigured(): boolean {
 export async function createAsaasCheckout(
   input: AsaasCheckoutInput,
 ): Promise<AsaasCheckoutResult> {
-  const apiKey = Deno.env.get('ASAAS_API_KEY') ?? ''
-  if (!apiKey) {
-    throw new Error('ASAAS_NOT_CONFIGURED')
-  }
+  const token = apiKey()
 
-  const baseUrl = Deno.env.get('ASAAS_BASE_URL') ?? DEFAULT_BASE_URL
+  const checkoutBaseUrl = baseUrl()
   const installments = Math.min(Math.max(input.installmentCount, 1), 21)
 
-  const response = await fetch(`${baseUrl}/checkouts`, {
+  const response = await fetch(`${checkoutBaseUrl}/checkouts`, {
     method: 'POST',
-    headers: {
-      access_token: apiKey,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'User-Agent': 'MonteiroVelosoForm/1.0',
-    },
+    headers: apiHeaders(token),
     body: JSON.stringify({
       billingTypes: [input.billingType],
       chargeTypes: installments > 1 ? ['INSTALLMENT'] : ['DETACHED'],

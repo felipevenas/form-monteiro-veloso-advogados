@@ -55,9 +55,7 @@ async function fillDados(page: Page, name = 'Ana Paula Souza') {
 async function fillContract(page: Page) {
   await page.getByLabel(/Banco \/ instituição financeira/).fill('Banco Itaú')
 
-  await page
-    .getByRole('radio', { name: /Sinal \+ 6 parcelas/ })
-    .check({ force: true })
+  await page.getByText('Sinal + 6 parcelas', { exact: true }).click()
   await page.getByRole('checkbox', { name: /Li e concordo/ }).check()
   await page.getByRole('button', { name: 'Continuar para assinatura' }).click()
 
@@ -179,7 +177,7 @@ test.describe('Formulário público', () => {
     await openForm(page)
     await fillDados(page)
 
-    await page.getByRole('radio', { name: /Limitação dos Consignados/ }).check({ force: true })
+    await page.getByText('Limitação dos Consignados', { exact: true }).click()
 
     await expect(page.getByLabel(/Ente federativo e lei aplicável/)).toBeVisible()
     await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveCount(0)
@@ -189,7 +187,7 @@ test.describe('Formulário público', () => {
     await openForm(page)
     await fillDados(page)
 
-    await page.getByRole('radio', { name: /Superendividamento/ }).check({ force: true })
+    await page.getByText('Superendividamento', { exact: true }).click()
 
     await expect(page.getByLabel(/Ente federativo e lei aplicável/)).toHaveCount(0)
     await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveCount(0)
@@ -204,11 +202,12 @@ test.describe('Formulário público', () => {
     await openForm(page)
     await fillDados(page)
 
-    await page.getByRole('radio', { name: /Defesa de Busca e Apreensão/ }).check({ force: true })
+    // O input é sr-only; o alvo real de clique é o rótulo visível.
+    await page.getByText('Defesa de Busca e Apreensão', { exact: true }).click()
     await page.getByLabel(/Banco \/ instituição financeira/).fill('Banco Itaú')
     await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveValue('Banco Itaú')
 
-    await page.getByRole('radio', { name: /Superendividamento/ }).check({ force: true })
+    await page.getByText('Superendividamento', { exact: true }).click()
     await expect(page.getByLabel(/Banco \/ instituição financeira/)).toHaveCount(0)
 
     await page.getByRole('checkbox', { name: /Li e concordo/ }).check()

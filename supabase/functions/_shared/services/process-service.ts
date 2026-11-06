@@ -19,7 +19,21 @@ import {
   createZapSignDocument,
   isZapSignConfigured,
 } from './zapsign-client.ts'
-import { createAsaasCheckout, isAsaasConfigured } from './asaas-client.ts'
+import { isAsaasConfigured } from './asaas-client.ts'
+import {
+  createRemainingCharges,
+  createUpfrontCharges,
+  ensureAsaasCustomer,
+  upfrontPayments,
+} from './asaas-service.ts'
+import { addInternalSignerToSignature } from './contract-flow.ts'
+import {
+  buildDiscountClause,
+  buildPaymentClause,
+  buildSuccessValues,
+  formatDateExtenso,
+  moneyToWords,
+} from '../domain/contract-text.ts'
 import { ensureAlert, recordEvent } from './process-log.ts'
 import { createSession } from './session-service.ts'
 import { sendSubmissionEmails } from './email-service.ts'
@@ -228,8 +242,8 @@ export async function saveStep(
     .select('*')
     .single<DbProcess>()
 
-  if (error) {
-    console.error('[process] falha ao salvar etapa:', error.message)
+  if (error || !updated) {
+    console.error('[process] falha ao salvar etapa:', error?.message)
     throw fail.internal()
   }
 
@@ -454,8 +468,8 @@ export async function savePlan(
     .select('*')
     .single<DbProcess>()
 
-  if (error) {
-    console.error('[process] falha ao salvar plano:', error.message)
+  if (error || !updated) {
+    console.error('[process] falha ao salvar plano:', error?.message)
     throw fail.internal()
   }
 
@@ -652,8 +666,8 @@ export async function startSignature(
     .select('*')
     .single<DbProcess>()
 
-  if (error) {
-    console.error('[process] falha ao congelar processo:', error.message)
+  if (error || !updated) {
+    console.error('[process] falha ao congelar processo:', error?.message)
     throw fail.conflict(
       'PROCESS_CONFLICT',
       'O processo foi atualizado em outra aba. Recarregue e tente novamente.',
@@ -669,6 +683,9 @@ export async function startSignature(
   })
 
   if (!signatureDone) {
+    // Ordem do Asaas: na etapa 2 apenas o cadastro do cliente é criado.
+    await ensureAsaasCustomer(supabase, updated.id, bundle.client)
+
     const contracted = await sendContractToSigners(supabase, updated.id)
 
     if (!contracted) {
@@ -698,38 +715,22 @@ export interface CheckoutInput {
 export async function createPaymentCheckout(
   supabase: SupabaseClient,
   process: DbProcess,
-  input: CheckoutInput,
+  _input: CheckoutInput,
 ): Promise<{ checkoutUrl: string }> {
-  const signed =
-    process.signature_status === 'ASSINADA_CLIENTE' ||
-    process.signature_status === 'ASSINADA_COMPLETA'
-
-  if (!signed) {
-    throw fail.conflict('SIGNATURE_REQUIRED', 'Conclua a assinatura antes de pagar.')
-  }
-
-  if (process.payment_status === 'PAGO') {
-    const bundle = await loadProcessBundle(supabase, process.id)
-    const link = bundle?.payments.find((payment) => payment.invoice_url)?.invoice_url
-    return { checkoutUrl: link ?? '' }
-  }
-
-  const bundle = await loadProcessBundle(supabase, process.id)
-  if (!bundle) throw fail.notFound('Processo não encontrado.')
-
-  const existing = bundle.payments.find(
-    (payment) => payment.external_charge_id && payment.invoice_url,
-  )
-  if (existing?.invoice_url) {
-    return { checkoutUrl: existing.invoice_url }
+  // A cobrança de sinal/entrada só existe depois que cliente e advogada
+  // assinaram. A assinatura apenas do cliente não libera pagamento.
+  if (process.signature_status !== 'ASSINADA_COMPLETA') {
+    throw fail.conflict(
+      'SIGNATURE_REQUIRED',
+      'A assinatura do cliente e da advogada precisa estar concluída antes do pagamento.',
+    )
   }
 
   if (!isAsaasConfigured()) {
     await ensureAlert(supabase, {
       key: `asaas-not-configured:${process.id}`,
-      title: 'Checkout do Asaas não configurado',
-      description:
-        'Cadastre ASAAS_API_KEY nas secrets da Edge Function para liberar o pagamento.',
+      title: 'Asaas não configurado',
+      description: 'Cadastre ASAAS_API_KEY nas secrets da Edge Function para liberar o pagamento.',
       processId: process.id,
       severity: 'CRITICAL',
     })
@@ -739,71 +740,29 @@ export async function createPaymentCheckout(
     )
   }
 
-  const planId = process.selected_plan_id
-  const plan = bundle.plans.find((item) => item.id === planId && item.active)
-  if (!plan) throw fail.unprocessable('PLAN_NOT_FOUND', 'Escolha uma forma de pagamento válida.')
+  let bundle = await loadProcessBundle(supabase, process.id)
+  if (!bundle) throw fail.notFound('Processo não encontrado.')
 
-  const financial = process.financial_snapshot as
-    | { totalCents?: number }
-    | null
-  const totalCents = financial?.totalCents ?? plan.total_cents
-  const client = bundle.client
-  const address = (client?.address as Record<string, unknown> | null) ?? {}
-  const appUrl = (Deno.env.get('APP_URL') ?? '').split(',')[0]?.trim() || 'https://form.monteiroveloso.com'
-  const returnUrl = `${appUrl}/processo/${input.token}?pagamento=retorno`
+  const existing = upfrontPayments(bundle).find((payment) => payment.invoice_url)
+  if (existing?.invoice_url) {
+    return { checkoutUrl: existing.invoice_url }
+  }
 
-  let checkout: { id: string; link: string }
-  try {
-    checkout = await createAsaasCheckout({
-      billingType: plan.method === 'CARD' ? 'CREDIT_CARD' : 'PIX',
-      installmentCount: plan.installment_count,
-      totalCents,
-      description: plan.label,
-      itemName: bundle.product.short_name,
-      externalReference: process.id,
-      successUrl: returnUrl,
-      cancelUrl: returnUrl,
-      expiredUrl: returnUrl,
-      customer: {
-        name: client?.full_name ?? 'Cliente',
-        cpfCnpj: client?.cpf ?? '',
-        email: client?.email ?? null,
-        phone: client?.phone_e164?.replace(/\D+/g, '') ?? null,
-        postalCode: stringValue(address.cep),
-        address: stringValue(address.logradouro),
-        addressNumber: stringValue(address.numero),
-        complement: stringValue(address.complemento),
-        province: stringValue(address.bairro),
-      },
-    })
-  } catch (cause) {
-    console.error('[process] falha ao criar checkout:', cause)
+  // Fallback: o webhook de assinatura pode ter falhado ao criar a cobrança.
+  await createUpfrontCharges(supabase, process.id)
+
+  bundle = await loadProcessBundle(supabase, process.id)
+  const link = bundle ? upfrontPayments(bundle).find((payment) => payment.invoice_url)?.invoice_url : null
+
+  if (!link) {
     await ensureAlert(supabase, {
       key: `asaas-checkout-failed:${process.id}`,
-      title: 'Falha ao criar checkout',
-      description: 'O Asaas não respondeu como esperado. Verifique a API key e tente novamente.',
+      title: 'Falha ao criar a cobrança inicial',
+      description: 'O Asaas não devolveu o link do sinal/entrada. Verifique a API key e tente novamente.',
       processId: process.id,
       severity: 'CRITICAL',
     })
     throw fail.unavailable('Não foi possível abrir o pagamento agora. Tente novamente.')
-  }
-
-  const firstPayment = bundle.payments[0]
-  if (firstPayment) {
-    await supabase
-      .from('payments')
-      .update({
-        external_charge_id: checkout.id,
-        invoice_url: checkout.link,
-        status: 'PENDENTE',
-      })
-      .eq('id', firstPayment.id)
-
-    await supabase
-      .from('payments')
-      .update({ invoice_url: checkout.link, status: 'PENDENTE' })
-      .eq('contract_process_id', process.id)
-      .neq('id', firstPayment.id)
   }
 
   const completed = new Set(process.completed_steps)
@@ -812,23 +771,23 @@ export async function createPaymentCheckout(
   await supabase
     .from('contract_processes')
     .update({
-      payment_status: 'PENDENTE',
       general_status: 'AGUARDANDO_PAGAMENTO',
       current_step: 'pagamento',
       completed_steps: [...completed],
-      version: process.version + 1,
     })
     .eq('id', process.id)
 
   await recordEvent(supabase, process.id, {
-    type: 'CHECKOUT_CREATED',
-    title: 'Checkout criado',
-    description: `Checkout do Asaas criado para o plano "${plan.label}".`,
+    type: 'PAYMENT_LINK_OPENED',
+    title: 'Cobrança inicial aberta',
+    description: 'O cliente abriu o link da cobrança de sinal/entrada no Asaas.',
     actorType: 'CLIENT',
-    payload: { checkoutId: checkout.id, planId: plan.id },
   })
 
-  return { checkoutUrl: checkout.link }
+  // Se a cobrança inicial já estiver paga, garante as parcelas restantes.
+  await createRemainingCharges(supabase, process.id)
+
+  return { checkoutUrl: link }
 }
 
 async function ensureSignatureRows(
@@ -914,6 +873,15 @@ async function sendContractToSigners(
   }
 
   const templateById = new Map(bundle.templates.map((template) => [template.id, template]))
+
+  // Recupera documentos criados em uma tentativa anterior em que a signatária
+  // interna não chegou a ser adicionada.
+  for (const signature of bundle.signatures) {
+    if (signature.external_document_id && !signature.external_internal_signer_id) {
+      await addInternalSignerToSignature(supabase, processId, signature)
+    }
+  }
+
   const pending = bundle.signatures.filter((signature) => !signature.external_document_id)
 
   if (pending.length === 0 && bundle.signatures.length > 0) {
@@ -980,10 +948,12 @@ async function sendContractToSigners(
 
       if (!result.token) throw new Error('ZAPSIGN_EMPTY_TOKEN')
 
+      const clientSignerToken = result.signers[0]?.token ?? null
       const { error } = await supabase
         .from('signatures')
         .update({
           external_document_id: result.token,
+          external_signer_id: clientSignerToken,
           signature_url: result.signerUrl,
           status: 'PENDENTE',
           last_event_at: new Date().toISOString(),
@@ -991,6 +961,12 @@ async function sendContractToSigners(
         .eq('id', signature.id)
 
       if (error) throw new Error(error.message)
+
+      await addInternalSignerToSignature(supabase, processId, {
+        ...signature,
+        external_document_id: result.token,
+        external_signer_id: clientSignerToken,
+      })
       generated += 1
     } catch (cause) {
       console.error('[process] falha ao gerar contrato:', cause)
@@ -1042,61 +1018,182 @@ function buildTemplateData(bundle: ProcessBundle): Array<{ de: string; para: str
   const client = bundle.client
   const address = isRecord(client?.address) ? client.address : {}
   const extra = isRecord(form.extra) ? form.extra : {}
+  const financial = (bundle.process.financial_snapshot as FinancialSnapshot | null) ?? null
+
+  const plan = bundle.plans.find((item) => item.id === bundle.process.selected_plan_id)
+  const service = bundle.services.find(
+    (item) =>
+      item.id ===
+      (bundle.process.selected_service_id ?? plan?.service_id ?? ''),
+  )
+
+  const street = stringValue(address.logradouro) ?? ''
+  const number = stringValue(address.numero) ?? ''
+  const complement = stringValue(address.complemento) ?? 'sem complemento'
+  const neighborhood = stringValue(address.bairro) ?? ''
+  const city = stringValue(address.cidade) ?? ''
+  const uf = stringValue(address.uf)?.toUpperCase() ?? ''
+  const cep = formatCep(stringValue(address.cep) ?? '')
+  const cityUf = [city, uf].filter(Boolean).join('/')
+  const fullName = (client?.full_name ?? '').toUpperCase()
+  const cpf = formatCpf(client?.cpf ?? '')
+  const email = (client?.email ?? '').toLowerCase()
+  const whatsapp = formatPhoneBr(client?.phone_e164 ?? '')
+
+  const contractNumber = stringValue(extra.contract_number)
+  const additional = stringValue(extra.descricao_adicional_do_objeto)
+  const descricao = [additional, contractNumber ? `Contrato nº ${contractNumber}` : '']
+    .filter(Boolean)
+    .join(' — ')
+
+  // v1 usa `instituicao_financeira`; v2 usa `banco_instituicao_financeira`.
+  const bank =
+    stringValue(extra.banco_instituicao_financeira) ??
+    stringValue(extra.finance_institution) ??
+    ''
+
+  const totalCents =
+    financial?.totalCents ??
+    plan?.total_cents ??
+    service?.total_cents ??
+    0
+
+  const success = buildSuccessValues({
+    successMode: service?.success_mode ?? 'CLAUSULA_BRANCA',
+    successPercent: service?.success_percent ?? null,
+    successMonths: service?.success_months ?? null,
+    successConditions: service?.success_conditions ?? null,
+    successClause: service?.success_clause ?? null,
+  })
+
+  const paymentClause = financial
+    ? buildPaymentClause({
+        financial,
+        planLabel: plan?.label ?? '',
+        discountPercent: plan?.discount_percent ?? 0,
+      })
+    : ''
+
+  const dataExtenso = formatDateExtenso(todayInSaoPaulo())
+  const totalExtenso = moneyToWords(totalCents)
+  const discountClause = buildDiscountClause(plan?.discount_percent ?? 0)
+
   const addressLine = [
-    stringValue(address.logradouro),
-    stringValue(address.numero),
-    stringValue(address.complemento),
-    stringValue(address.bairro),
-    stringValue(address.cidade),
-    stringValue(address.uf),
+    street,
+    number,
+    complement,
+    neighborhood,
+    cityUf,
+    cep,
   ]
     .filter(Boolean)
     .join(', ')
 
-  const plan = bundle.plans.find((item) => item.id === bundle.process.selected_plan_id)
-  const service = bundle.services.find((item) => item.id === plan?.service_id)
+  const lowercase: Record<string, string> = {
+    nome_completo: fullName,
+    nacionalidade: stringValue(form.nationality) ?? 'Brasileira',
+    estado_civil: stringValue(form.maritalStatus) ?? '',
+    profissao: stringValue(form.profession) ?? '',
+    cpf,
+    email,
+    whatsapp,
+    rua_avenida: street,
+    numero: number,
+    complemento: complement,
+    bairro: neighborhood,
+    cidade_uf: cityUf,
+    cep,
+    banco_instituicao_financeira: bank,
+    ente_federativo_e_lei_aplicavel: stringValue(extra.ente_federativo_e_lei_aplicavel) ?? '',
+    numero_contrato: contractNumber ?? '',
+    descricao_adicional_do_objeto: descricao,
+    data_extenso: dataExtenso,
+    valor_total_extenso: totalExtenso,
+    clausula_pagamento: paymentClause,
+    forma_pagamento: plan?.label ?? 'Pix, boleto ou cartão de crédito',
+    clausula_desconto: discountClause,
+    clausula_exito: success.clausula_exito,
+    exito_reducao_percentual: success.exito_reducao_percentual,
+    exito_reducao_meses: success.exito_reducao_meses,
+    exito_reducao_condicoes: success.exito_reducao_condicoes,
+  }
 
-  const values: Record<string, string> = {
+  // Compatibilidade com templates antigos que usavam variáveis em maiúsculas.
+  const uppercase: Record<string, string> = {
     SERVICO: service?.name ?? '',
     SERVIÇO: service?.name ?? '',
-    NOME_COMPLETO: client?.full_name ?? '',
-    NOME: client?.full_name ?? '',
-    CPF: client?.cpf ?? '',
-    EMAIL: client?.email ?? '',
-    TELEFONE: client?.phone_e164 ?? '',
-    ESTADO_CIVIL: stringValue(form.maritalStatus) ?? '',
-    PROFISSAO: stringValue(form.profession) ?? '',
-    NACIONALIDADE: stringValue(form.nationality) ?? 'Brasileira',
+    NOME_COMPLETO: fullName,
+    NOME: fullName,
+    CPF: cpf,
+    EMAIL: email,
+    TELEFONE: whatsapp,
+    WHATSAPP: whatsapp,
+    ESTADO_CIVIL: lowercase.estado_civil ?? '',
+    PROFISSAO: lowercase.profissao ?? '',
+    NACIONALIDADE: lowercase.nacionalidade ?? '',
+    RUA_AVENIDA: street,
+    NUMERO: number,
+    COMPLEMENTO: complement,
+    BAIRRO: neighborhood,
+    CIDADE_UF: cityUf,
+    CIDADE: city,
+    UF: uf,
+    CEP: cep,
     ENDERECO: addressLine,
     ENDERECO_COMPLETO: addressLine,
-    CEP: stringValue(address.cep) ?? '',
-    CIDADE: stringValue(address.cidade) ?? '',
-    UF: stringValue(address.uf) ?? '',
-    PLACA: stringValue(extra.vehicle_plate) ?? '',
-    PLACA_VEICULO: stringValue(extra.vehicle_plate) ?? '',
-    MODELO: stringValue(extra.vehicle_model) ?? '',
-    MODELO_VEICULO: stringValue(extra.vehicle_model) ?? '',
-    FINANCEIRA: stringValue(extra.finance_institution) ?? '',
-    INSTITUICAO_FINANCEIRA: stringValue(extra.finance_institution) ?? '',
-    NUMERO_CONTRATO: stringValue(extra.contract_number) ?? '',
+    BANCO_INSTITUICAO_FINANCEIRA: bank,
+    FINANCEIRA: bank,
+    INSTITUICAO_FINANCEIRA: bank,
+    ENTE_FEDERATIVO_E_LEI_APLICAVEL: lowercase.ente_federativo_e_lei_aplicavel ?? '',
+    NUMERO_CONTRATO: contractNumber ?? '',
+    DESCRICAO_ADICIONAL_DO_OBJETO: descricao,
+    DATA_EXTENSO: dataExtenso,
+    VALOR_TOTAL_EXTENSO: totalExtenso,
     VALOR_TOTAL: new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL',
-    }).format(
-      (plan?.total_cents ??
-        ((bundle.process.financial_snapshot as { totalCents?: number } | null)?.totalCents ?? 0)) /
-        100,
-    ),
-    FORMA_PAGAMENTO: plan?.label ?? '',
+    }).format(totalCents / 100),
+    CLAUSULA_PAGAMENTO: paymentClause,
+    FORMA_PAGAMENTO: lowercase.forma_pagamento ?? '',
+    CLAUSULA_DESCONTO: discountClause,
+    CLAUSULA_EXITO: success.clausula_exito,
+    EXITO_REDUCAO_PERCENTUAL: success.exito_reducao_percentual,
+    EXITO_REDUCAO_MESES: success.exito_reducao_meses,
+    EXITO_REDUCAO_CONDICOES: success.exito_reducao_condicoes,
     DATA_CONTRATO: new Intl.DateTimeFormat('pt-BR', {
       timeZone: 'America/Sao_Paulo',
     }).format(new Date()),
   }
 
-  return Object.entries(values).map(([key, value]) => ({
-    de: `{{${key}}}`,
-    para: value,
-  }))
+  return [...Object.entries(lowercase), ...Object.entries(uppercase)].map(
+    ([key, value]) => ({
+      de: `{{${key}}}`,
+      para: value,
+    }),
+  )
+}
+
+function formatCpf(value: string): string {
+  const digits = value.replace(/\D+/g, '')
+  if (digits.length !== 11) return value
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
+}
+
+function formatCep(value: string): string {
+  const digits = value.replace(/\D+/g, '')
+  if (digits.length !== 8) return value
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`
+}
+
+function formatPhoneBr(value: string): string {
+  const digits = value.replace(/\D+/g, '').replace(/^55/, '')
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+  }
+  return value
 }
 
 export async function loadDto(
@@ -1201,8 +1298,8 @@ async function ensureClient(
     .select('id')
     .single<{ id: string }>()
 
-  if (error) {
-    console.error('[process] falha ao criar cliente:', error.message)
+  if (error || !data) {
+    console.error('[process] falha ao criar cliente:', error?.message)
     throw fail.internal()
   }
 

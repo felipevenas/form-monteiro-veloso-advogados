@@ -20,6 +20,20 @@ export interface InstallmentScheduleItem {
   dueDate: IsoDate
 }
 
+/** Rótulo humano das quatro regras aceitas pelo contrato. */
+export function describeDueDateRule(rule: DueDateRule): string {
+  switch (rule.type) {
+    case 'LAST_DAY_OF_MONTH':
+      return 'Último dia do mês'
+    case 'FIRST_BUSINESS_DAY':
+      return 'Primeiro dia útil do mês'
+    case 'LAST_BUSINESS_DAY':
+      return 'Último dia útil do mês'
+    case 'FIXED_DAY':
+      return `Dia ${rule.day} de cada mês`
+  }
+}
+
 /**
  * Calcula a agenda de vencimentos a partir de uma data de referência.
  *

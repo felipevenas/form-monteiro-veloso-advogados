@@ -81,6 +81,7 @@ export interface DbPaymentPlan {
   entry_cents: number
   installment_count: number
   due_date_rule: DueDateRule
+  discount_percent: number
   active: boolean
 }
 
@@ -98,6 +99,10 @@ export interface DbProductService {
   success_mode: string
   kit_code: string | null
   requires_vehicle_data: boolean
+  success_percent: number | null
+  success_months: number | null
+  success_conditions: string | null
+  success_clause: string | null
 }
 
 export interface DbDocumentRequirement {
@@ -145,6 +150,7 @@ export interface DbClient {
   email: string | null
   phone_e164: string | null
   address: Record<string, unknown>
+  external_asaas_customer_id: string | null
   marital_status: string | null
   profession: string | null
   nationality: string | null
@@ -179,6 +185,11 @@ export interface DbSignature {
   signature_url: string | null
   signed_at: string | null
   last_event_at: string | null
+  external_signer_id: string | null
+  external_internal_signer_id: string | null
+  signed_file_url: string | null
+  drive_file_id: string | null
+  drive_folder_id: string | null
   created_at: string
 }
 
@@ -189,6 +200,7 @@ export interface DbPayment {
   external_charge_id: string | null
   external_installment_id: string | null
   installment_number: number
+  payment_type: 'SIGNAL' | 'ENTRY' | 'INSTALLMENT'
   amount_cents: number
   due_date: string
   status: string
