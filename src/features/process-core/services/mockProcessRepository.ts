@@ -286,13 +286,10 @@ export function createMockProcessRepository(): MockProcessRepository {
     async createCheckout(token) {
       const process = load(token)
 
-      if (
-        process.signatureStatus !== 'ASSINADA_CLIENTE' &&
-        process.signatureStatus !== 'ASSINADA_COMPLETA'
-      ) {
+      if (process.signatureStatus !== 'ASSINADA_COMPLETA') {
         throw new ApiError(
           'SIGNATURE_REQUIRED',
-          'Conclua a assinatura antes de pagar.',
+          'A assinatura do cliente e da advogada precisa estar concluída antes do pagamento.',
           409,
         )
       }

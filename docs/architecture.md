@@ -56,8 +56,8 @@ O fluxo tem 5 etapas: **Seus dados → Contrato e pagamento → Assinatura → P
 - Cada alteração nas etapas editáveis (`dados`, `contrato`) é salva em `PUT /process/steps/:step/draft` com debounce de ~900 ms, sem validar obrigatórios e sem avançar `current_step`. O avanço continua em `PUT /process/steps/:step`.
 - `dados` junta identificação, dados pessoais e endereço (CEP via ViaCEP no browser, com fallback manual).
 - `contrato` junta os dados do financiamento e a escolha do plano. Ao continuar, a API congela o financeiro, registra o consentimento e chama o ZapSign.
-- **Assinatura** é um checkpoint: o ZapSign cria os documentos a partir do template e envia o link por e-mail/WhatsApp. O botão “Prosseguir” só habilita quando o webhook confirma a assinatura.
-- **Pagamento** abre o checkout hospedado do Asaas. O `callback.successUrl` volta para `/processo/:token?pagamento=retorno`; a confirmação vem do webhook `CHECKOUT_PAID`, nunca do redirect.
+- **Assinatura** é um checkpoint: o ZapSign cria os documentos a partir do template e envia o link por e-mail/WhatsApp ao cliente. Depois da assinatura do cliente, a Edge Function assina em lote pela Dra. Roberta (`POST /sign/`). O botão “Prosseguir” só habilita com `ASSINADA_COMPLETA`.
+- **Pagamento** segue a ordem do Asaas: cliente no Asaas na etapa 2; sinal/entrada criado só após a assinatura completa; parcelas restantes criadas quando o sinal/entrada é pago. A confirmação vem do webhook do Asaas, nunca do redirect.
 - **Documentos** só é liberado após assinatura + pagamento e conclui o processo quando os obrigatórios são enviados.
 - O status do autosave e os estados de assinatura/pagamento são anunciados com `aria-live`; a página faz polling de 5 s enquanto aguarda webhook.
 - O tema claro/escuro é persistido em `mv:theme` e aplicado em `html[data-theme]`; o formulário abre **sempre no claro** e o escuro é uma escolha do visitante (o botão do cabeçalho alterna). O escuro é escopado a `.public-shell`. A logo é o ícone real da LP aplicado como máscara CSS com `currentColor`.

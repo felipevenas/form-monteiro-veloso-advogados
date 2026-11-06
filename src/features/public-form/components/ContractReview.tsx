@@ -5,6 +5,7 @@ import { formatPhone } from '@/shared/utils/phone'
 import { formatCep } from '@/shared/utils/cep'
 import { formatBRL } from '@/shared/utils/money'
 import { formatDateBr, todayInSaoPaulo } from '@/shared/utils/dates'
+import { describeDueDateRule } from '@/shared/utils/dueDate'
 import { getByPath } from '../utils/formUtils'
 
 interface ContractReviewProps {
@@ -112,6 +113,10 @@ export function ContractReview({ draft, service, plan }: ContractReviewProps) {
     paymentRows.push({
       label: 'Parcelas',
       value: plan.installmentCount > 1 ? `${plan.installmentCount} parcelas` : 'À vista',
+    })
+    paymentRows.push({
+      label: 'Vencimento',
+      value: describeDueDateRule(plan.dueDateRule),
     })
   }
 

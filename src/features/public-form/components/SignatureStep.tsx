@@ -40,9 +40,10 @@ export function SignatureStep({
 }: SignatureStepProps) {
   const [simulating, setSimulating] = useState(false)
   const documents = process.signature?.documents ?? []
-  const signed =
+  const clientSigned =
     process.signatureStatus === 'ASSINADA_CLIENTE' ||
     process.signatureStatus === 'ASSINADA_COMPLETA'
+  const signed = process.signatureStatus === 'ASSINADA_COMPLETA'
   const generating =
     process.generalStatus === 'CONTRATO_EM_GERACAO' || documents.length === 0
   const refused = process.signatureStatus === 'RECUSADA'
@@ -88,20 +89,24 @@ export function SignatureStep({
           <p className="text-[0.9rem] font-bold text-ink" role="status" aria-live="polite">
             {signed
               ? 'Contrato assinado'
-              : refused
-                ? 'Assinatura recusada'
-                : generating
-                  ? 'Contrato em preparação pela equipe'
-                  : 'Aguardando sua assinatura'}
+              : clientSigned
+                ? 'Assinatura recebida — aguardando o escritório'
+                : refused
+                  ? 'Assinatura recusada'
+                  : generating
+                    ? 'Contrato em preparação pela equipe'
+                    : 'Aguardando sua assinatura'}
           </p>
           <p className="text-[0.8rem] leading-relaxed text-text-2">
             {signed
-              ? 'A próxima etapa é o pagamento no checkout do Asaas.'
-              : refused
-                ? 'Fale com a equipe para revisar o contrato e reenviar.'
-                : generating
-                  ? 'O escritório está preparando seu contrato. O link de assinatura chega no seu WhatsApp.'
-                  : `Enviamos o contrato para ${formatPhone(process.client.phone ?? '')}. Abra o link no WhatsApp e conclua a assinatura.`}
+              ? 'A próxima etapa é o pagamento do sinal/entrada no Asaas.'
+              : clientSigned
+                ? 'Você assinou todos os documentos. A Dra. Roberta assina em seguida; o pagamento é liberado automaticamente.'
+                : refused
+                  ? 'Fale com a equipe para revisar o contrato e reenviar.'
+                  : generating
+                    ? 'O escritório está preparando seu contrato. O link de assinatura chega no seu WhatsApp.'
+                    : `Enviamos o contrato para ${formatPhone(process.client.phone ?? '')}. Abra o link no WhatsApp e conclua a assinatura.`}
           </p>
         </div>
       </div>
@@ -109,9 +114,8 @@ export function SignatureStep({
       {documents.length > 0 ? (
         <ul className="flex flex-col divide-y divide-border border border-border">
           {documents.map((document) => {
-            const done =
-              document.status === 'ASSINADA_CLIENTE' ||
-              document.status === 'ASSINADA_COMPLETA'
+            const done = document.status === 'ASSINADA_COMPLETA'
+            const clientDone = document.status === 'ASSINADA_CLIENTE'
             return (
               <li
                 key={document.id}
@@ -121,18 +125,18 @@ export function SignatureStep({
                   <span
                     className={cn(
                       'grid size-6 shrink-0 place-items-center rounded-full border text-[0.62rem] font-bold',
-                      done
+                      done || clientDone
                         ? 'border-success/40 bg-success-soft text-success'
                         : 'border-border-interactive text-field',
                     )}
                     aria-hidden="true"
                   >
-                    {done ? <CheckCircle2 className="size-3.5" /> : null}
+                    {done || clientDone ? <CheckCircle2 className="size-3.5" /> : null}
                   </span>
                   <span className="text-[0.84rem] font-semibold text-ink">{document.name}</span>
                 </div>
 
-                {document.signUrl && !done ? (
+                {document.signUrl && !clientDone && !done ? (
                   <a
                     href={document.signUrl}
                     target="_blank"
@@ -143,7 +147,7 @@ export function SignatureStep({
                   </a>
                 ) : (
                   <span className="text-[0.72rem] font-semibold text-text-2">
-                    {done ? 'Assinado' : 'Aguardando'}
+                    {done ? 'Assinado por ambos' : clientDone ? 'Assinado por você' : 'Aguardando'}
                   </span>
                 )}
               </li>

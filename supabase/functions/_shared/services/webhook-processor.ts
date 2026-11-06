@@ -8,10 +8,14 @@
  */
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
-import type { DbProcess, DbSignature } from '../db/types.ts'
-import { runInBackground } from '../http/background.ts'
-import { sendCompletionEmail } from './email-service.ts'
-import { ensureAlert, recordEvent } from './process-service.ts'
+import type { DbPayment, DbProcess, DbSignature } from '../db/types.ts'
+import { ensureAlert, recordEvent } from './process-log.ts'
+import { getZapSignDocument } from './zapsign-client.ts'
+import {
+  finalizeSignedDocuments,
+  requestInternalSignatures,
+} from './contract-flow.ts'
+import { markPaymentPaid, markPaymentStatus } from './asaas-service.ts'
 
 export interface ZapSignPayload {
   event_type?: string
@@ -74,56 +78,13 @@ export async function processZapSignEvent(
 
   const processId = signature.contract_process_id
   const eventType = payload.event_type ?? 'unknown'
-  const signedAt =
-    payload.signer_who_signed?.signed_at ??
-    payload.signers?.find((signer) => signer.signed_at)?.signed_at ??
-    new Date().toISOString()
 
-  if (eventType === 'doc_signed' || payload.status === 'signed') {
-    await supabase
-      .from('signatures')
-      .update({
-        status: 'ASSINADA_CLIENTE',
-        signed_at: signedAt,
-        last_event_at: new Date().toISOString(),
-      })
-      .eq('id', signature.id)
-  } else if (eventType === 'doc_refused') {
+  if (eventType === 'doc_refused') {
     await supabase
       .from('signatures')
       .update({ status: 'RECUSADA', last_event_at: new Date().toISOString() })
       .eq('id', signature.id)
-  } else if (eventType === 'doc_deleted') {
-    await supabase
-      .from('signatures')
-      .update({ status: 'CANCELADA', last_event_at: new Date().toISOString() })
-      .eq('id', signature.id)
-  } else {
-    return
-  }
 
-  const { data: rows } = await supabase
-    .from('signatures')
-    .select('*')
-    .eq('contract_process_id', processId)
-
-  const signatures = (rows ?? []) as DbSignature[]
-  const allSigned =
-    signatures.length > 0 &&
-    signatures.every((row) =>
-      ['ASSINADA_CLIENTE', 'ASSINADA_COMPLETA'].includes(row.status),
-    )
-
-  if (allSigned) {
-    await supabase
-      .from('signatures')
-      .update({ status: 'ASSINADA_COMPLETA' })
-      .eq('contract_process_id', processId)
-  }
-
-  const refused = signatures.some((row) => row.status === 'RECUSADA')
-
-  if (refused) {
     await supabase
       .from('contract_processes')
       .update({
@@ -149,46 +110,128 @@ export async function processZapSignEvent(
     return
   }
 
-  if (!allSigned) {
+  if (eventType === 'doc_deleted') {
     await supabase
-      .from('contract_processes')
-      .update({
-        signature_status: 'ASSINADA_CLIENTE',
-        general_status: 'AGUARDANDO_ASSINATURA_CLIENTE',
-        current_step: 'assinatura',
-      })
-      .eq('id', processId)
-
-    await recordEvent(supabase, processId, {
-      type: 'SIGNATURE_PARTIAL',
-      title: 'Assinatura recebida',
-      description: 'Um dos documentos foi assinado. Aguardando os demais.',
-      actorType: 'CLIENT',
-    })
+      .from('signatures')
+      .update({ status: 'CANCELADA', last_event_at: new Date().toISOString() })
+      .eq('id', signature.id)
     return
   }
 
-  const process = await loadProcess(supabase, processId)
-  if (!process) return
+  if (eventType !== 'doc_signed' && payload.status !== 'signed') return
 
-  const completed = new Set(process.completed_steps)
-  completed.add('assinatura')
+  const signerWhoSigned = payload.signer_who_signed?.token
+  const payloadSignerToken =
+    signerWhoSigned ??
+    payload.signers?.find((signer) => signer.signed_at || signer.status === 'signed')?.token
+
+  let signedFileUrl: string | null = signature.signed_file_url
+  let clientSigned = false
+  let internalSigned = false
+
+  try {
+    if (signature.external_document_id) {
+      const document = await getZapSignDocument(signature.external_document_id)
+      signedFileUrl = document.signedFileUrl ?? signedFileUrl
+
+      const clientToken = signature.external_signer_id
+      const internalToken = signature.external_internal_signer_id
+
+      clientSigned = clientToken
+        ? document.signers.some(
+            (signer) => signer.token === clientToken && signer.status === 'signed',
+          )
+        : Boolean(payloadSignerToken && payloadSignerToken !== internalToken)
+
+      internalSigned = internalToken
+        ? document.signers.some(
+            (signer) => signer.token === internalToken && signer.status === 'signed',
+          )
+        : false
+    }
+  } catch (cause) {
+    // O payload ainda permite distinguir cliente e advogada pelo token.
+    console.error('[zapsign] falha ao detalhar documento no webhook:', cause)
+    clientSigned = Boolean(
+      payloadSignerToken && payloadSignerToken !== signature.external_internal_signer_id,
+    )
+    internalSigned = Boolean(
+      payloadSignerToken &&
+        signature.external_internal_signer_id &&
+        payloadSignerToken === signature.external_internal_signer_id,
+    )
+  }
+
+  if (!clientSigned && !internalSigned) {
+    // Alguns eventos chegam sem o token do signatário; usa a mudança de status
+    // do documento como fallback para não travar o fluxo.
+    clientSigned = true
+  }
+
+  const signedAt =
+    payload.signer_who_signed?.signed_at ??
+    payload.signers?.find((signer) => signer.signed_at)?.signed_at ??
+    new Date().toISOString()
+
+  await supabase
+    .from('signatures')
+    .update({
+      status: internalSigned
+        ? 'ASSINADA_COMPLETA'
+        : clientSigned
+          ? 'ASSINADA_CLIENTE'
+          : 'PENDENTE',
+      signed_at: signedAt,
+      signed_file_url: signedFileUrl,
+      last_event_at: new Date().toISOString(),
+    })
+    .eq('id', signature.id)
+
+  const { data: rows } = await supabase
+    .from('signatures')
+    .select('*')
+    .eq('contract_process_id', processId)
+
+  const signatures = (rows ?? []) as DbSignature[]
+
+  const refused = signatures.some((row) => row.status === 'RECUSADA')
+  if (refused) return
+
+  const allClientSigned =
+    signatures.length > 0 &&
+    signatures.every((row) =>
+      ['ASSINADA_CLIENTE', 'ASSINADA_COMPLETA'].includes(row.status),
+    )
+  const allComplete =
+    signatures.length > 0 &&
+    signatures.every((row) => row.status === 'ASSINADA_COMPLETA')
+
+  if (allComplete) {
+    const process = await loadProcess(supabase, processId)
+    if (process && process.signature_status !== 'ASSINADA_COMPLETA') {
+      await finalizeSignedDocuments(supabase, processId)
+    }
+    return
+  }
+
+  if (allClientSigned) {
+    await requestInternalSignatures(supabase, processId)
+    return
+  }
 
   await supabase
     .from('contract_processes')
     .update({
-      signature_status: 'ASSINADA_COMPLETA',
-      general_status: 'AGUARDANDO_PAGAMENTO',
-      current_step: 'pagamento',
-      completed_steps: [...completed],
-      version: process.version + 1,
+      signature_status: 'PENDENTE',
+      general_status: 'AGUARDANDO_ASSINATURA_CLIENTE',
+      current_step: 'assinatura',
     })
     .eq('id', processId)
 
   await recordEvent(supabase, processId, {
-    type: 'SIGNATURE_COMPLETED',
-    title: 'Assinatura concluída',
-    description: 'Todos os documentos foram assinados. O pagamento foi liberado.',
+    type: 'SIGNATURE_PARTIAL',
+    title: 'Assinatura recebida',
+    description: 'Um dos documentos foi assinado. Aguardando os demais.',
     actorType: 'CLIENT',
   })
 }
@@ -200,6 +243,7 @@ const PAID_EVENTS = new Set([
   'CHECKOUT_PAID',
 ])
 
+const PAID_STATUSES = new Set(['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'])
 const CANCELED_EVENTS = new Set(['PAYMENT_REFUNDED', 'PAYMENT_DELETED'])
 const OVERDUE_EVENTS = new Set(['PAYMENT_OVERDUE', 'CHECKOUT_EXPIRED'])
 
@@ -209,131 +253,60 @@ export async function processAsaasEvent(
 ): Promise<void> {
   const eventType = payload.event ?? ''
   const checkout = payload.checkout
-  const payment = payload.payment
-  const externalReference = checkout?.externalReference ?? payment?.externalReference ?? ''
+  const paymentPayload = payload.payment
+  const externalReference =
+    checkout?.externalReference ?? paymentPayload?.externalReference ?? ''
 
-  let processId: string | null = null
+  const payment = await findPaymentRow(
+    supabase,
+    paymentPayload?.id ?? null,
+    externalReference,
+    checkout?.id ?? null,
+  )
 
-  if (/^[0-9a-f-]{36}$/i.test(externalReference)) {
-    const { data } = await supabase
-      .from('contract_processes')
-      .select('id')
-      .eq('id', externalReference)
-      .maybeSingle<{ id: string }>()
-    processId = data?.id ?? null
-  }
-
-  if (!processId && checkout?.id) {
-    const { data } = await supabase
-      .from('payments')
-      .select('contract_process_id')
-      .eq('external_charge_id', checkout.id)
-      .maybeSingle<{ contract_process_id: string }>()
-    processId = data?.contract_process_id ?? null
-  }
-
-  if (!processId && payment?.id) {
-    const { data } = await supabase
-      .from('payments')
-      .select('contract_process_id')
-      .eq('external_charge_id', payment.id)
-      .maybeSingle<{ contract_process_id: string }>()
-    processId = data?.contract_process_id ?? null
-  }
-
-  if (!processId) {
-    console.warn('[asaas] processo não encontrado para o evento')
+  if (!payment) {
+    console.warn('[asaas] cobrança não encontrada para o evento')
     return
   }
 
-  const process = await loadProcess(supabase, processId)
-  if (!process) return
+  const processId = payment.contract_process_id
 
-  if (PAID_EVENTS.has(eventType) || checkout?.status === 'PAID') {
-    await markPaid(supabase, process)
+  if (
+    PAID_EVENTS.has(eventType) ||
+    checkout?.status === 'PAID' ||
+    (paymentPayload?.status ? PAID_STATUSES.has(paymentPayload.status) : false)
+  ) {
+    const paidAt =
+      paymentPayload?.paymentDate ??
+      paymentPayload?.confirmedDate ??
+      paymentPayload?.clientPaymentDate ??
+      new Date().toISOString()
+
+    await markPaymentPaid(supabase, processId, payment, paidAt)
     return
   }
 
-  if (CANCELED_EVENTS.has(eventType) || checkout?.status === 'CANCELED') {
-    await supabase
-      .from('payments')
-      .update({ status: 'CANCELADO' })
-      .eq('contract_process_id', processId)
-
-    await supabase
-      .from('contract_processes')
-      .update({ payment_status: 'CANCELADO', general_status: 'AGUARDANDO_PAGAMENTO' })
-      .eq('id', processId)
-
-    await recordEvent(supabase, processId, {
-      type: 'PAYMENT_CANCELED',
-      title: 'Pagamento cancelado',
-      description: 'O checkout foi cancelado. Um novo pagamento pode ser gerado.',
-      actorType: 'SYSTEM',
-    })
+  if (
+    CANCELED_EVENTS.has(eventType) ||
+    checkout?.status === 'CANCELED' ||
+    paymentPayload?.status === 'REFUNDED' ||
+    paymentPayload?.status === 'REFUND_REQUESTED'
+  ) {
+    await markPaymentStatus(
+      supabase,
+      processId,
+      payment,
+      paymentPayload?.status === 'REFUNDED' ? 'ESTORNADO' : 'CANCELADO',
+    )
     return
   }
 
-  if (OVERDUE_EVENTS.has(eventType) || checkout?.status === 'EXPIRED') {
-    await supabase
-      .from('payments')
-      .update({ status: 'VENCIDO' })
-      .eq('contract_process_id', processId)
-
-    await supabase
-      .from('contract_processes')
-      .update({ payment_status: 'VENCIDO', general_status: 'AGUARDANDO_PAGAMENTO' })
-      .eq('id', processId)
-
-    await recordEvent(supabase, processId, {
-      type: 'PAYMENT_EXPIRED',
-      title: 'Pagamento expirado',
-      description: 'O checkout expirou. Gere um novo pagamento para continuar.',
-      actorType: 'SYSTEM',
-    })
-  }
-}
-
-async function markPaid(supabase: SupabaseClient, process: DbProcess): Promise<void> {
-  const paidAt = new Date().toISOString()
-
-  await supabase
-    .from('payments')
-    .update({ status: 'PAGO', paid_at: paidAt })
-    .eq('contract_process_id', process.id)
-
-  const completed = new Set(process.completed_steps)
-  completed.add('assinatura')
-  completed.add('pagamento')
-
-  const documentsDone = process.documents_status === 'COMPLETA'
-
-  if (documentsDone) completed.add('documentos')
-
-  await supabase
-    .from('contract_processes')
-    .update({
-      payment_status: 'PAGO',
-      general_status: documentsDone ? 'CONCLUIDO' : 'AGUARDANDO_DOCUMENTOS',
-      current_step: 'documentos',
-      completed_steps: [...completed],
-      ...(documentsDone ? { completed_at: paidAt } : {}),
-      version: process.version + 1,
-    })
-    .eq('id', process.id)
-
-  await recordEvent(supabase, process.id, {
-    type: 'PAYMENT_CONFIRMED',
-    title: 'Pagamento confirmado',
-    description: 'O Asaas confirmou o pagamento. Os documentos foram liberados.',
-    actorType: 'SYSTEM',
-    payload: { paidAt },
-  })
-
-  // Documentos já estavam completos: este evento fecha o processo. Se a
-  // conclusão vier pelo upload, quem dispara é `refreshDocumentsStatus`.
-  if (documentsDone && process.general_status !== 'CONCLUIDO') {
-    runInBackground(sendCompletionEmail(supabase, process.id))
+  if (
+    OVERDUE_EVENTS.has(eventType) ||
+    checkout?.status === 'EXPIRED' ||
+    paymentPayload?.status === 'OVERDUE'
+  ) {
+    await markPaymentStatus(supabase, processId, payment, 'VENCIDO')
   }
 }
 
@@ -348,4 +321,53 @@ async function loadProcess(
     .maybeSingle<DbProcess>()
 
   return data
+}
+
+async function findPaymentRow(
+  supabase: SupabaseClient,
+  externalChargeId: string | null,
+  externalReference: string,
+  checkoutId: string | null,
+): Promise<DbPayment | null> {
+  if (externalChargeId) {
+    const { data } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('external_charge_id', externalChargeId)
+      .maybeSingle<DbPayment>()
+    if (data) return data
+  }
+
+  if (externalReference) {
+    const { data } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('external_reference', externalReference)
+      .maybeSingle<DbPayment>()
+    if (data) return data
+  }
+
+  if (checkoutId) {
+    const { data } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('external_charge_id', checkoutId)
+      .maybeSingle<DbPayment>()
+    if (data) return data
+  }
+
+  const match = /^([0-9a-f-]{36})/i.exec(externalReference)
+  const processId = match?.[1]
+  if (processId) {
+    const { data } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('contract_process_id', processId)
+      .order('installment_number', { ascending: true })
+      .limit(1)
+      .maybeSingle<DbPayment>()
+    if (data) return data
+  }
+
+  return null
 }

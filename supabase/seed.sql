@@ -78,10 +78,8 @@ values (
         "title": "Dados do contrato",
         "description": "Informações do financiamento e do veículo que serão usadas na defesa.",
         "fields": [
-          { "name": "placa_veiculo", "label": "Placa do veículo", "type": "text", "required": true, "mask": "placa", "placeholder": "ABC1D23", "colSpan": 1 },
-          { "name": "modelo_veiculo", "label": "Modelo do veículo", "type": "text", "required": true, "placeholder": "Ex.: Fiat Argo 1.0", "colSpan": 1 },
-          { "name": "instituicao_financeira", "label": "Banco ou financeira", "type": "text", "required": true, "placeholder": "Ex.: Banco Itaú", "colSpan": 2 },
-          { "name": "numero_contrato", "label": "Número do contrato de financiamento", "type": "text", "required": false, "placeholder": "Se tiver em mãos (opcional)", "colSpan": 2 }
+          { "name": "banco_instituicao_financeira", "label": "Banco ou financeira", "type": "text", "required": true, "placeholder": "Ex.: Banco Itaú", "colSpan": 2 },
+          { "name": "numero_contrato", "label": "Número do contrato (opcional)", "type": "text", "required": false, "placeholder": "Se tiver em mãos (opcional)", "colSpan": 2 }
         ]
       },
       {
@@ -467,10 +465,8 @@ set form_schema = $flow$
       "title": "Contrato e pagamento",
       "description": "Dados do financiamento e escolha do plano. O contrato sai com essas informações.",
       "fields": [
-        { "name": "placa_veiculo", "label": "Placa do veículo", "type": "text", "required": true, "mask": "placa", "placeholder": "ABC1D23", "colSpan": 1 },
-        { "name": "modelo_veiculo", "label": "Modelo do veículo", "type": "text", "required": true, "placeholder": "Ex.: Fiat Argo 1.0", "colSpan": 1 },
-        { "name": "instituicao_financeira", "label": "Banco ou financeira", "type": "text", "required": true, "placeholder": "Ex.: Banco Itaú", "colSpan": 2 },
-        { "name": "numero_contrato", "label": "Número do contrato de financiamento", "type": "text", "required": false, "placeholder": "Se tiver em mãos (opcional)", "colSpan": 2 }
+        { "name": "banco_instituicao_financeira", "label": "Banco ou financeira", "type": "text", "required": true, "placeholder": "Ex.: Banco Itaú", "colSpan": 2 },
+        { "name": "numero_contrato", "label": "Número do contrato (opcional)", "type": "text", "required": false, "placeholder": "Se tiver em mãos (opcional)", "colSpan": 2 }
       ]
     },
     {
@@ -496,3 +492,44 @@ set form_schema = $flow$
 $flow$::jsonb
 where id = '22222222-2222-4222-8222-222222222222';
 
+
+-- ---------------------------------------------------------------------------
+-- Catálogo local da v2 (12 produtos reais)
+--
+-- Em produção a v2 continua DRAFT e inativa até a definição dos valores. No
+-- ambiente local de desenvolvimento, ativamos a versão para que o formulário
+-- exercite os 12 serviços reais e as quatro regras de vencimento.
+-- ---------------------------------------------------------------------------
+update public.product_versions
+set status = 'APPROVED',
+    approved_at = coalesce(approved_at, now())
+where id = '22222222-2222-4222-8222-222222222223';
+
+update public.product_services
+set active = true
+where product_version_id = '22222222-2222-4222-8222-222222222223';
+
+update public.payment_plans
+set active = true
+where product_version_id = '22222222-2222-4222-8222-222222222223';
+
+update public.payment_plans
+set due_date_rule = case
+  when service_id in (
+    '99999999-9999-4999-8999-999999999901',
+    '99999999-9999-4999-8999-999999999905',
+    '99999999-9999-4999-8999-999999999909'
+  ) then '{"type": "LAST_DAY_OF_MONTH"}'::jsonb
+  when service_id in (
+    '99999999-9999-4999-8999-999999999902',
+    '99999999-9999-4999-8999-999999999906',
+    '99999999-9999-4999-8999-999999999910'
+  ) then '{"type": "FIRST_BUSINESS_DAY"}'::jsonb
+  when service_id in (
+    '99999999-9999-4999-8999-999999999903',
+    '99999999-9999-4999-8999-999999999907',
+    '99999999-9999-4999-8999-999999999911'
+  ) then '{"type": "LAST_BUSINESS_DAY"}'::jsonb
+  else '{"type": "FIXED_DAY", "day": 10}'::jsonb
+end
+where product_version_id = '22222222-2222-4222-8222-222222222223';
